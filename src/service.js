@@ -351,10 +351,11 @@ async function tableView(db, token, light) {
   const out = {
     now: Date.now(), shop_name: st.shop_name, enabled: st.qr_order_on !== '0',
     table_name: s.table_name, package_name: s.package_name, guests: s.adults + s.children,
+    adults: s.adults, children: s.children, adult_price: toBaht(s.adult_satang), child_price: toBaht(s.child_satang),
     ends_at: s.duration_min ? s.opened_at + s.duration_min * 60000 : null, opened_at: s.opened_at,
     call_staff_at: s.call_staff_at || 0, call_bill_at: s.call_bill_at || 0,
     bill: billOut(computeBill(s, items.filter((i) => liveIds.includes(i.order_id)))),
-    orders: orders.map((o) => ({ round_no: o.round_no, created_at: o.created_at, status: o.status, items: items.filter((i) => i.order_id === o.id).map((i) => ({ name: i.name, qty: i.qty, in_package: !!i.in_package })) })),
+    orders: orders.map((o) => ({ round_no: o.round_no, created_at: o.created_at, status: o.status, items: items.filter((i) => i.order_id === o.id).map((i) => ({ name: i.name, qty: i.qty, in_package: !!i.in_package, price: i.in_package ? 0 : toBaht(i.unit_satang) })) })),
   };
   if (light) return out;
   const menu = await all(db, 'SELECT id, name, category, price_satang, available, image_v FROM menu_items ORDER BY category, sort, id');

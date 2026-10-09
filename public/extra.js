@@ -82,7 +82,7 @@ const autoPrint = {
     const on = !this.on();
     store.set('autoprint', on ? '1' : null);
     if (on && S.live) this.remember(new Set([...this.seen(), ...S.live.orders.map((o) => o.id)])); // ไม่พิมพ์ของเก่าที่ค้างอยู่
-    toast(on ? 'เปิดพิมพ์อัตโนมัติบนเครื่องนี้แล้ว' : 'ปิดพิมพ์อัตโนมัติแล้ว');
+    toast(on ? 'เปิดพิมพ์และรับออเดอร์อัตโนมัติบนเครื่องนี้แล้ว' : 'ปิดพิมพ์อัตโนมัติแล้ว');
     render();
   },
   check() {
@@ -93,6 +93,13 @@ const autoPrint = {
     fresh.forEach((o) => seen.add(o.id));
     this.remember(seen);
     printNodes(fresh.map(kitchenTicket));
+    this.accept(fresh.map((o) => o.id));
+  },
+  // พิมพ์แล้ว = รับออเดอร์แล้ว → ย้ายไป "กำลังทำ" ให้เอง ไม่ต้องกดรับทีละใบ
+  accept(ids) {
+    ids.forEach((id) => api('PUT', `/api/orders/${id}/status`, { status: 'cooking' })
+      .then(() => { const o = S.live?.orders.find((x) => x.id === id); if (o && o.status === 'new') o.status = 'cooking'; if (S.view === 'orders') render(); })
+      .catch(() => {}));
   },
 };
 

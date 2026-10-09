@@ -62,6 +62,25 @@ const sound = {
   },
   orderChime() { if (this.on()) this.tones([[1047, 0, 0.5], [784, 0.28, 0.8]]); },          // ติ๊ง-ต่อง (ออเดอร์ใหม่)
   callChime() { if (this.on()) this.tones([[880, 0, 0.18], [1175, 0.15, 0.18], [1568, 0.3, 0.35]], 0.14); }, // ติ๊ด-ติ๊ด-ติ๊ง สั้นๆ ก่อนพูด
+  kaching() { // เสียงเครื่องคิดเงิน "กะ-ฉิ่ง!" ตอนรับเงินปิดโต๊ะ (สังเคราะห์เอง ไม่ใช้ไฟล์เสียงลิขสิทธิ์)
+    if (!this.on()) return; const ac = this.ctx(); if (!ac) return;
+    const t0 = ac.currentTime;
+    // "กะ" = เสียงลิ้นชักกระแทก (noise สั้นๆ)
+    const len = Math.floor(ac.sampleRate * 0.09), buf = ac.createBuffer(1, len, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+    const n = ac.createBufferSource(), nf = ac.createBiquadFilter(), ng = ac.createGain();
+    n.buffer = buf; nf.type = 'bandpass'; nf.frequency.value = 1800; nf.Q.value = 0.8; ng.gain.value = 0.9;
+    n.connect(nf); nf.connect(ng); ng.connect(ac.destination); n.start(t0);
+    // "ฉิ่ง!" = กระดิ่งโลหะ (โอเวอร์โทนไม่ลงตัว) ดังค้างแล้วค่อยๆ หาย
+    [[2637, 0.16], [3951, 0.1], [5274, 0.07], [6645, 0.05], [3322, 0.06]].forEach(([f, v]) => {
+      const o = ac.createOscillator(), g = ac.createGain(), t = t0 + 0.08;
+      o.type = 'sine'; o.frequency.value = f; o.connect(g); g.connect(ac.destination);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+      o.start(t); o.stop(t + 1.5);
+    });
+    // เหรียญกรุ๊งกริ๊งเบาๆ
+    [0.3, 0.38, 0.47].forEach((d2, i) => this.tones([[4200 + i * 500, d2, 0.12]], 0.05));
+  },
   thaiVoice() {
     const vs = (window.speechSynthesis?.getVoices() || []).filter((v) => /^th/i.test(v.lang) || /thai|ไทย/i.test(v.name));
     const female = /premwadee|achara|kanya|narisa|pattara|female|ผู้หญิง/i; // ชื่อเสียงผู้หญิงที่พบบ่อยบน Windows / Edge / Mac / Android
@@ -121,13 +140,17 @@ function soundPanel() {
     h('span', {}, label, h('span', { class: 'sub', style: 'display:block;font-weight:400' }, sub)));
   const v = sound.thaiVoice();
   return h('div', { class: 'panel grow', style: 'flex:none;max-height:none' },
-    h('div', { class: 'ph' }, h('span', {}, 'เสียงเตือน (เฉพาะเครื่องนี้)')),
-    sw('snd_off', 'เปิดเสียงเตือนบนเครื่องนี้', 'ออเดอร์ใหม่จากลูกค้า = เสียง "ติ๊ง-ต่อง" · ลูกค้าเรียกพนักงาน/เช็คบิล = เสียงผู้หญิงประกาศ'),
+    h('div', { class: 'ph' }, h('span', {}, 'เครื่องนี้: พิมพ์อัตโนมัติ และเสียงเตือน')),
+    h('label', { class: 'switch', style: 'background:var(--ground)' },
+      h('input', { type: 'checkbox', checked: autoPrint.on(), onchange: () => autoPrint.toggle() }),
+      h('span', {}, 'พิมพ์และรับออเดอร์ใหม่อัตโนมัติ', h('span', { class: 'sub', style: 'display:block;font-weight:400' }, 'เปิดเฉพาะเครื่องที่ต่อเครื่องพิมพ์ ออเดอร์ใหม่ (ทั้งลูกค้าสั่งเองและพนักงานสั่ง) จะพิมพ์ใบครัวเองและขึ้น "กำลังทำ" ทันที ไม่ต้องกดรับ · ต้องเปิด Chrome แบบ --kiosk-printing ถึงจะไม่มีหน้าต่างถามก่อนพิมพ์'))),
+    sw('snd_off', 'เปิดเสียงเตือนบนเครื่องนี้', 'ออเดอร์ใหม่จากลูกค้า = "ติ๊ง-ต่อง" · เรียกพนักงาน/เช็คบิล = เสียงผู้หญิงประกาศ · รับเงินปิดโต๊ะ = "กะ-ฉิ่ง!"'),
     sw('voice_off', 'ใช้เสียงพูดประกาศ', '"ลูกค้าโต๊ะที่ 5 เรียกพนักงานค่ะ" / "ลูกค้าโต๊ะที่ 5 ขอเช็คบิลค่ะ"'),
     h('div', { class: 'sub' }, v ? `เสียงที่ใช้: ${v.name}` : 'เครื่องนี้ยังไม่มีเสียงพูดภาษาไทย จะใช้เสียงกริ๊งแทน (ดูวิธีเพิ่มด้านล่าง)'),
-    h('div', { class: 'row2', style: 'max-width:520px' },
+    h('div', { class: 'row3', style: 'display:flex;flex-wrap:wrap;gap:10px' },
       h('button', { type: 'button', class: 'btn ghost', onclick: () => sound.orderChime() }, 'ทดสอบเสียงออเดอร์ใหม่'),
-      h('button', { type: 'button', class: 'btn ghost', onclick: () => sound.say('ลูกค้าโต๊ะที่ 5 เรียกพนักงานค่ะ') }, 'ทดสอบเสียงเรียกพนักงาน')),
+      h('button', { type: 'button', class: 'btn ghost', onclick: () => sound.say('ลูกค้าโต๊ะที่ 5 เรียกพนักงานค่ะ') }, 'ทดสอบเสียงเรียกพนักงาน'),
+      h('button', { type: 'button', class: 'btn ghost', onclick: () => sound.kaching() }, 'ทดสอบเสียงรับเงิน')),
     v ? null : h('div', { class: 'warnbox' }, 'Windows: Settings → Time & language → Language & region → Add a language → ไทย (ติ๊ก Speech / Text-to-speech) แล้วปิดเปิด Chrome ใหม่ · ถ้าใช้ Microsoft Edge จะมีเสียงผู้หญิงแบบธรรมชาติ (Premwadee) ให้เลย'),
     h('div', { class: 'sub' }, 'เปิดหน้าผังโต๊ะหรือออเดอร์ทิ้งไว้ และแตะหน้าจอ 1 ครั้งหลังเปิดเครื่อง เบราว์เซอร์ถึงจะยอมให้มีเสียง'));
 }

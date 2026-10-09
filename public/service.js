@@ -46,7 +46,7 @@ async function go(view, extra = {}) {
       if (ss.call_staff_at || ss.call_bill_at) { api('POST', `/api/sessions/${ss.id}/ack`).catch(() => {}); ss.call_staff_at = ss.call_bill_at = 0; }
     }
     else if (view === 'checkout') await loadDetail();
-    else if (['floor', 'orders'].includes(view)) { await loadLive(); alertNewInbox(S.live?.inbox); alertCalls(S.live?.sessions); alertNewOrders(S.live?.orders); if (view === 'orders') autoPrint.check(); }
+    else if (['floor', 'orders'].includes(view)) { await loadLive(); alertNewInbox(S.live?.inbox); alertCalls(S.live?.sessions); alertNewOrders(S.live?.orders); autoPrint.check(); }
   } catch (e) { toast(e.message, true); }
   render();
 }
@@ -69,9 +69,12 @@ setInterval(() => {
 }, 1000);
 let lastPoll = 0;
 setInterval(async () => {
-  if (document.hidden || !S.pin || !['floor', 'orders', 'line'].includes(S.view)) return;
+  if (!S.pin) return;
+  const shown = ['floor', 'orders', 'line'].includes(S.view) && !document.hidden;
+  // เครื่องที่เปิด "พิมพ์อัตโนมัติ" ดึงออเดอร์ทุก 8 วินาทีไม่ว่าจะอยู่หน้าไหน (แม้ย่อหน้าต่างไว้) จะได้พิมพ์และมีเสียงตลอด
+  if (!shown && !autoPrint.on()) return;
   if (S.view === 'floor' && S.open) return; // กำลังกรอกฟอร์มเปิดโต๊ะอยู่ ไม่รบกวน
-  const every = S.view === 'orders' ? 10000 : 15000;
+  const every = autoPrint.on() ? 8000 : S.view === 'orders' ? 10000 : 15000;
   if (Date.now() - lastPoll < every) return;
   lastPoll = Date.now();
   // ถ้ากำลังพิมพ์หมายเหตุหรือตัวเลขอยู่ ไม่วาดหน้าจอใหม่ (กันข้อความหาย)
@@ -79,7 +82,7 @@ setInterval(async () => {
   try {
     if (S.view === 'line') await Promise.all([loadInbox(), loadLive()]); else await loadLive();
     autoPrint.check(); alertNewInbox(S.live?.inbox); alertCalls(S.live?.sessions); alertNewOrders(S.live?.orders);
-    if (!typing) render();
+    if (!typing && shown) render();
   } catch {}
 }, 1000);
 
@@ -201,6 +204,7 @@ function tableView() {
     if (sent && autoPrint.on()) {
       const seen = autoPrint.seen(); seen.add(sent.id); autoPrint.remember(seen);
       printOrder({ ...sent, table_name: ses.table_name });
+      autoPrint.accept([sent.id]);
     }
   }, null, async () => render());
 
@@ -289,7 +293,7 @@ function checkoutView() {
       if (!confirm(`ยืนยันรับเงิน ${money(total())} และปิด${ses.table_name}?`)) return;
       doThen(async () => {
         const r = await api('POST', `/api/sessions/${ses.id}/close`, { method: p.method, discount: num(p.discount), penalty: num(p.penalty) });
-        toast(`ปิด${ses.table_name}แล้ว · ${money(r.bill.total)}`);
+        sound.kaching(); toast(`ปิด${ses.table_name}แล้ว · ${money(r.bill.total)}`);
       }, null, () => go('floor', { sid: null, detail: null }));
     } }, 'ยืนยันรับเงิน + ปิดโต๊ะ'));
   return [left, right];
@@ -311,8 +315,8 @@ function ordersView() {
       o.status !== 'ready' ? h('button', { class: 'btn ghost narrow', onclick: () => { if (confirm(`ยกเลิกออเดอร์ ${o.table_name} รอบที่ ${o.round_no}?`)) set(o, 'cancelled', 'ยกเลิกออเดอร์แล้ว'); } }, 'ยกเลิก') : null));
   const ap = autoPrint.on();
   const tools = h('div', { class: 'ktools' },
-    h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: ap, onchange: () => autoPrint.toggle() }), ' พิมพ์ออเดอร์ใหม่อัตโนมัติบนเครื่องนี้'),
-    h('span', { class: 'sub' }, ap ? 'เปิดหน้านี้ค้างไว้ ออเดอร์ใหม่จะสั่งพิมพ์เอง (เช็กทุก 10 วินาที)' : 'เหมาะกับเครื่องที่ต่อเครื่องพิมพ์ในครัว'));
+    h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: ap, onchange: () => autoPrint.toggle() }), ' พิมพ์และรับออเดอร์ใหม่อัตโนมัติบนเครื่องนี้'),
+    h('span', { class: 'sub' }, ap ? 'ออเดอร์ใหม่จะพิมพ์ใบครัวเองแล้วย้ายไป "กำลังทำ" ทันที ไม่ต้องกดรับ (เช็กทุก 8 วินาที เปิดระบบค้างไว้หน้าไหนก็ได้)' : 'เปิดบนเครื่องที่ต่อเครื่องพิมพ์ จะพิมพ์และรับออเดอร์ให้เอง'));
   return [tools, h('div', { class: 'cols' }, cols.map(([st, title, next, label, cls]) => {
     const list = S.live.orders.filter((o) => o.status === st);
     return h('section', { class: 'col' }, h('div', { class: 'ch' }, h('span', {}, title), h('span', { class: 'cnt' }, list.length)),

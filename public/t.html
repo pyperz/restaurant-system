@@ -30,6 +30,10 @@
 .sheet .card{width:100%;max-width:640px;margin:0 auto;border-radius:18px 18px 0 0;max-height:88vh;overflow:auto;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
 .acts{display:flex;gap:10px;margin:14px 0}
 .acts .btn{flex:1;font-size:15px}
+.acts .btn{white-space:nowrap;padding-left:6px;padding-right:6px}
+.btn.pay{background:#1B2320;color:#fff;border-color:#1B2320}
+.coming{background:#E7F5EC;color:#1E6B3A;border-radius:12px;padding:12px 14px;margin:0 0 12px;font-weight:600;text-align:center}
+.coming.big{display:flex;flex-direction:column;gap:2px;font-size:17px}.coming.big span{font-weight:400;font-size:14px}
 .hist{background:#fff;border-radius:14px;padding:12px 14px;margin-top:10px}
 .hist .row{font-weight:700}
 .badge{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--well)}
@@ -63,7 +67,7 @@ function h(tag, attrs = {}, ...kids) {
   for (const c of kids.flat(Infinity)) if (c != null && c !== false) el.append(c instanceof Node ? c : String(c));
   return el;
 }
-let D = null, skew = 0, mode = 'pkg', cat = '', sending = false;
+let D = null, skew = 0, mode = 'pkg', cat = '', sending = false, billAsked = false;
 const cart = {}; // 'pkg:12' → { qty, note }
 let tt;
 function toast(msg, err) { const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false; clearTimeout(tt); tt = setTimeout(() => (t.hidden = true), 3000); }
@@ -80,9 +84,14 @@ async function load(light) {
     skew = d.now - Date.now();
     D = light && D ? { ...D, ...d } : d;
     if (!D.pkg_items?.length) mode = 'extra';
+    if (D.call_bill_at) billAsked = true;
     render();
+    if ($('#sheet').dataset.kind === 'bill' && !$('#sheet').hidden) showBill();
   } catch (e) {
-    if (e.status === 404) { D = null; $('#main').replaceChildren(h('div', { class: 'card center' }, h('h2', {}, 'QR นี้ใช้ไม่ได้แล้ว'), h('p', { class: 'muted' }, e.message))); $('#cartbar').hidden = true; $('#tname').textContent = 'สั่งอาหาร'; $('#timer').hidden = true; }
+    if (e.status === 404) { D = null; $('#sheet').hidden = true; $('#sub').textContent = '';
+      $('#main').replaceChildren(billAsked
+        ? h('div', { class: 'card center' }, h('h2', {}, 'ขอบคุณที่ใช้บริการค่ะ'), h('p', { class: 'muted' }, 'โต๊ะนี้ชำระเงินเรียบร้อยแล้ว แล้วพบกันใหม่นะคะ'))
+        : h('div', { class: 'card center' }, h('h2', {}, 'QR นี้ใช้ไม่ได้แล้ว'), h('p', { class: 'muted' }, e.message))); $('#cartbar').hidden = true; $('#tname').textContent = 'สั่งอาหาร'; $('#timer').hidden = true; }
     else if (!light) toast(e.message, true);
   }
 }
@@ -93,7 +102,7 @@ function timerText() {
   return { text: `${left < 0 ? 'เกินเวลา ' : 'เหลือ '}${m}:${String(s).padStart(2, '0')}`, cls: left < 0 ? 'over' : left < 600000 ? 'warn' : '' };
 }
 setInterval(() => { const t = timerText(); const el = $('#timer'); if (!t) { el.hidden = true; return; } el.hidden = false; el.textContent = t.text; el.className = 'timer ' + t.cls; }, 1000);
-setInterval(() => { if (!document.hidden && D && !sending && $('#sheet').hidden) load(true); }, 20000);
+setInterval(() => { if (!document.hidden && D && !sending && ($('#sheet').hidden || $('#sheet').dataset.kind === 'bill')) load(true); }, 20000);
 
 const lines = () => Object.entries(cart).map(([k, v]) => { const [md, id] = k.split(':'); const list = md === 'pkg' ? D.pkg_items : D.extra_items; return { k, mode: md, m: list.find((x) => x.id === +id), ...v }; }).filter((l) => l.m);
 function setQty(k, q) { if (q <= 0) delete cart[k]; else cart[k] = { ...(cart[k] || {}), qty: Math.min(30, q) }; render(); }
@@ -125,14 +134,16 @@ function render() {
       h('button', { class: mode === 'extra' ? 'on' : '', 'aria-pressed': mode === 'extra' ? 'true' : 'false', onclick: () => { mode = 'extra'; cat = ''; render(); } }, 'สั่งเพิ่ม (คิดเงิน)')) : null,
     h('div', { class: 'acts', style: 'margin:0 0 10px' },
       h('button', { class: 'btn ghost', onclick: () => callStaff('staff') }, D.call_staff_at ? 'เรียกพนักงานแล้ว' : 'เรียกพนักงาน'),
-      D.orders.length ? h('button', { class: 'btn ghost', onclick: () => document.getElementById('hist')?.scrollIntoView({ behavior: 'smooth' }) }, `ที่สั่งแล้ว (${D.orders.length} รอบ)`) : null),
+      D.orders.length ? h('button', { class: 'btn ghost', onclick: () => document.getElementById('hist')?.scrollIntoView({ behavior: 'smooth' }) }, `ที่สั่งแล้ว (${D.orders.length})`) : null,
+      h('button', { class: 'btn pay', onclick: checkBill }, billAsked ? 'ดูบิล' : 'เช็คบิล')),
+    billAsked ? h('div', { class: 'coming', role: 'status' }, 'พนักงานกำลังมาที่โต๊ะของท่าน เพื่อเก็บเงินค่ะ') : null,
     mode === 'pkg' && over ? h('div', { class: 'card', style: 'background:#FDECEA;margin-bottom:10px' }, 'หมดเวลาทานบุฟเฟต์แล้ว สั่งเพิ่มแบบคิดเงินได้ หรือเรียกพนักงาน') : null,
     cats.length > 1 ? h('div', { class: 'chips' }, h('button', { class: 'chip' + (!cat ? ' on' : ''), onclick: () => { cat = ''; render(); } }, 'ทั้งหมด'),
       cats.map((c) => h('button', { class: 'chip' + (cat === c ? ' on' : ''), onclick: () => { cat = c; render(); } }, c))) : null,
     shown.length ? h('div', { class: 'grid' }, shown.map(tile)) : h('p', { class: 'muted center' }, 'ยังไม่มีรายการ'),
     h('div', { class: 'acts' },
       h('button', { class: 'btn ghost', onclick: () => callStaff('staff') }, D.call_staff_at ? 'เรียกพนักงานแล้ว' : 'เรียกพนักงาน'),
-      h('button', { class: 'btn ghost', onclick: () => callStaff('bill') }, D.call_bill_at ? 'แจ้งเช็คบิลแล้ว' : `เช็คบิล (${money(D.bill.total)})`)),
+      h('button', { class: 'btn pay', onclick: checkBill }, billAsked ? 'ดูบิล' : `ทานอิ่มแล้ว · เช็คบิล`)),
     D.orders.length ? [h('h3', { id: 'hist' }, 'รายการที่สั่งแล้ว'), D.orders.slice().reverse().map((o) => h('div', { class: 'hist' },
       h('div', { class: 'row' }, h('span', {}, `รอบที่ ${o.round_no}`), h('span', { class: 'badge ' + (o.status === 'ready' ? 'ready' : o.status === 'cancelled' ? 'cancelled' : '') }, statusTh[o.status] || o.status)),
       o.items.map((i) => h('div', { class: 'muted' }, `${i.qty}× ${i.name}`, i.in_package ? null : h('span', { class: 'xt' }, 'สั่งเพิ่ม')))))] : null,
@@ -148,6 +159,7 @@ function openCart() {
   const note = h('input', { class: 'inp', placeholder: 'หมายเหตุถึงครัว (ไม่บังคับ)', maxlength: 200, 'aria-label': 'หมายเหตุถึงครัว' });
   const close = () => { sheet.hidden = true; render(); };
   const sum = ls.filter((l) => l.mode === 'extra').reduce((a, l) => a + l.qty * l.m.price, 0);
+  sheet.dataset.kind = 'cart';
   sheet.replaceChildren(h('div', { class: 'card', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'ยืนยันการสั่ง' },
     h('h2', {}, 'ยืนยันการสั่ง'),
     ls.map((l) => h('div', { class: 'line' },
@@ -166,6 +178,40 @@ function openCart() {
         } catch (err) { toast(err.message, true); btn.disabled = false; btn.textContent = 'สั่งอาหาร'; }
         sending = false;
       } }, 'สั่งอาหาร'))));
+  sheet.hidden = false;
+  sheet.onclick = (e) => { if (e.target === sheet) close(); };
+}
+// ลูกค้ากด "ทานอิ่มแล้ว · เช็คบิล" → เรียกพนักงานเก็บเงิน + โชว์บิลเบื้องต้นทันที
+async function checkBill() {
+  if (!billAsked) {
+    const btns = document.querySelectorAll('.btn.pay'); btns.forEach((b) => { b.disabled = true; });
+    try { await api('/call', { type: 'bill' }); billAsked = true; }
+    catch (e) { toast(e.message, true); btns.forEach((b) => { b.disabled = false; }); return; }
+    load(true);
+  }
+  showBill();
+}
+function showBill() {
+  if (!D) return;
+  const sheet = $('#sheet'); sheet.dataset.kind = 'bill';
+  const b = D.bill, extras = {};
+  D.orders.filter((o) => o.status !== 'cancelled').forEach((o) => o.items.filter((i) => !i.in_package).forEach((i) => {
+    const k = i.name + '|' + i.price; extras[k] = extras[k] || { name: i.name, price: i.price, qty: 0 }; extras[k].qty += i.qty;
+  }));
+  const row = (a, c, cls) => h('div', { class: 'row' + (cls ? ' ' + cls : '') }, h('span', {}, a), h('span', {}, c));
+  const close = () => { sheet.hidden = true; sheet.dataset.kind = ''; render(); };
+  sheet.replaceChildren(h('div', { class: 'card', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'บิลของโต๊ะนี้' },
+    h('div', { class: 'coming big', role: 'status' }, h('b', {}, 'พนักงานกำลังมาที่โต๊ะของท่าน'), h('span', {}, 'เพื่อเก็บเงิน กรุณารอสักครู่ค่ะ')),
+    h('h2', {}, `บิล ${D.table_name}`),
+    D.package_name ? [
+      D.adults ? row(`${D.package_name} ผู้ใหญ่ ${D.adults} × ${money(D.adult_price)}`, money(D.adults * D.adult_price)) : null,
+      D.children ? row(`${D.package_name} เด็ก ${D.children} × ${money(D.child_price)}`, money(D.children * D.child_price)) : null] : null,
+    Object.values(extras).map((x) => row(`${x.name} ${x.qty} × ${money(x.price)}`, money(x.qty * x.price))),
+    b.penalty ? row('ค่าปรับ', money(b.penalty)) : null,
+    b.discount ? row('ส่วนลด', '−' + money(b.discount)) : null,
+    row('ยอดรวมเบื้องต้น', money(b.total), 'total'),
+    h('p', { class: 'muted', style: 'font-size:13px' }, 'ยอดนี้เป็นยอดเบื้องต้น พนักงานจะยืนยันยอดสุดท้ายอีกครั้งตอนชำระเงิน'),
+    h('button', { type: 'button', class: 'btn ghost', style: 'width:100%;margin-top:6px', onclick: close }, 'ปิด')));
   sheet.hidden = false;
   sheet.onclick = (e) => { if (e.target === sheet) close(); };
 }

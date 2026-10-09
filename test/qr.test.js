@@ -54,6 +54,11 @@ test('ลูกค้าสั่งได้ทั้งบุฟเฟต์�
   assert.equal(view.body.bill.extras, 180);
   assert.equal(view.body.orders[0].items.length, 2);
   assert.equal(view.body.pkg_items, undefined); // แบบเบาไม่ส่งเมนูซ้ำ
+  // ข้อมูลสำหรับบิลเบื้องต้นฝั่งลูกค้า: ราคาต่อหัว + ราคาต่อจานของที่สั่งเพิ่ม (ของในบุฟเฟต์ = 0)
+  assert.ok(view.body.adults >= 1 && view.body.adult_price > 0);
+  const extra = view.body.orders.flatMap((o) => o.items).filter((i) => !i.in_package);
+  assert.equal(extra.reduce((a, i) => a + i.qty * i.price, 0), 180);
+  assert.ok(view.body.orders.flatMap((o) => o.items).filter((i) => i.in_package).every((i) => i.price === 0));
 });
 
 test('เรียกพนักงาน / ขอเช็คบิล → ขึ้นที่ผังโต๊ะ และพนักงานรับทราบได้', async () => {
