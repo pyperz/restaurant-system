@@ -1,5 +1,5 @@
 // ส่วนที่ 2: หน้าร้าน — เปิดโต๊ะ สั่งอาหาร (ในแพ็กเกจ / สั่งเพิ่ม) ครัว และคิดเงิน
-import { all, first, run, bad, int, baht, toBaht, text, readJson } from './lib.js';
+import { all, first, run, bad, int, baht, toBaht, text, readJson, insertRows } from './lib.js';
 
 export const SERVICE_SCHEMA = [
   // หนึ่ง "รอบลูกค้า" ต่อโต๊ะ ตั้งแต่เปิดโต๊ะจนปิดบิล (เก็บราคา/ชื่อไว้ ณ ตอนเปิด เผื่อแก้แพ็กเกจทีหลัง)
@@ -145,8 +145,7 @@ async function placeOrder(db, sessionId, b) {
   const round = (await first(db, "SELECT COUNT(*) AS n FROM orders WHERE session_id = ? AND status != 'cancelled'", s.id)).n + 1;
   const o = await run(db, 'INSERT INTO orders (session_id, round_no, created_at, note) VALUES (?,?,?,?)', s.id, round, Date.now(), note);
   const orderId = o.meta.last_row_id;
-  const ins = db.prepare('INSERT INTO order_items (order_id, item_id, name, qty, in_package, unit_satang, note) VALUES (?,?,?,?,?,?,?)');
-  await db.batch(lines.map((l) => ins.bind(orderId, ...l)));
+  await insertRows(db, 'order_items', ['order_id', 'item_id', 'name', 'qty', 'in_package', 'unit_satang', 'note'], lines.map((l) => [orderId, ...l]));
   return { id: orderId, round_no: round };
 }
 

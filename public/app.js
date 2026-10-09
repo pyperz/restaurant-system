@@ -6,6 +6,7 @@ const store = {
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
 };
 
+const APP_VERSION = 'v2026.10.10';
 const S = { pin: store.get('pin'), view: store.get('view') || 'floor', data: null, sel: null };
 
 // ---------- ตัวช่วยสร้างหน้าจอ ----------
@@ -78,7 +79,7 @@ function loginView() {
 
 // ---------- แถบด้านบน ----------
 function bar() {
-  const current = ['table', 'checkout'].includes(S.view) ? 'floor' : S.view;
+  const current = ['table', 'checkout'].includes(S.view) ? 'floor' : ['import', 'photos'].includes(S.view) ? 'menu' : S.view;
   const tab = (key, label, badge) => h('button', { class: 'tab' + (current === key ? ' on' : ''), 'aria-current': current === key ? 'page' : null, onclick: () => {
     S.sel = null; S.open = null;
     if (key === 'line') S.inbox = null;
@@ -89,7 +90,8 @@ function bar() {
   return h('header', { class: 'bar' },
     h('nav', { class: 'tabs', 'aria-label': 'เมนูหลัก' }, h('span', { class: 'shopn' }, S.data?.settings?.shop_name || 'ร้านของเรา'),
       tab('floor', 'ผังโต๊ะ'), tab('orders', 'ออเดอร์'), tab('menu', 'เมนู'), tab('packages', 'แพ็กเกจ'), tab('line', 'LINE', inboxTotal(S.live?.inbox)), tab('report', 'รายงาน'), tab('settings', 'ตั้งค่า')),
-    h('button', { class: 'logout', onclick: () => { S.pin = null; store.set('pin', null); render(); } }, 'ออกจากระบบ'));
+    h('div', { style: 'display:flex;align-items:center;gap:10px' }, h('span', { class: 'ver', title: 'เวอร์ชันของระบบ' }, APP_VERSION),
+      h('button', { class: 'logout', onclick: () => { S.pin = null; store.set('pin', null); render(); } }, 'ออกจากระบบ')));
 }
 
 function field(label, attrs) {
@@ -121,10 +123,16 @@ function menuView() {
       m.available ? 'พร้อมขาย' : 'หมด')));
 
   const list = h('section', { class: 'list' },
-    h('div', { class: 'ph' }, h('span', {}, 'จัดการเมนู'), h('button', { class: 'btn blue', onclick: () => { S.sel = 'new'; render(); } }, '+ เพิ่มเมนู')),
+    h('div', { class: 'ph' }, h('span', {}, 'จัดการเมนู'), h('div', { class: 'acts2' },
+      h('button', { class: 'btn ghost', onclick: () => { S.view = 'import'; S.imp = null; render(); } }, 'นำเข้าจากไฟล์'),
+      h('button', { class: 'btn ghost', onclick: () => { S.view = 'photos'; S.pics = null; render(); } }, 'ใส่รูปหลายรูป'),
+      h('button', { class: 'btn blue', onclick: () => { S.sel = 'new'; render(); } }, '+ เพิ่มเมนู'))),
     menu.length ? h('div', { class: 'colhead' }, h('span', { style: 'width:56px' }), h('span', { style: 'flex:1' }, 'ชื่อเมนู / หมวด'),
       h('span', { style: 'width:80px;text-align:right' }, 'ราคาสั่งเพิ่ม'), h('span', { style: 'width:170px' }, 'อยู่ในแพ็กเกจ'), h('span', { style: 'width:120px' })) : null,
-    rows.length ? rows : h('div', { class: 'empty' }, 'ยังไม่มีเมนู กด "+ เพิ่มเมนู" เพื่อเริ่ม'));
+    rows.length ? rows : h('div', { class: 'empty', style: 'display:flex;flex-direction:column;gap:14px;align-items:center' },
+      h('div', {}, 'ยังไม่มีเมนู'),
+      h('button', { class: 'btn', onclick: () => loadBundledMenu() }, 'นำเข้าเมนูจาก Food Story (288 รายการ)'),
+      h('div', { class: 'sub' }, 'หรือกด "+ เพิ่มเมนู" เพื่อเพิ่มเอง')));
 
   if (!item) return [list];
   const chips = h('div', { class: 'chips' }, packages.length ? packages.map((p) => chip(p.name, p.id, item.id && p.item_ids.includes(item.id))) : h('span', { class: 'hint' }, 'ยังไม่มีแพ็กเกจ'));
@@ -251,8 +259,8 @@ function render() {
   if (!S.pin) { app.replaceChildren(loginView()); return; }
   if (!S.data) { app.replaceChildren(h('div', { class: 'login' }, 'กำลังโหลด…')); load().catch((e) => toast(e.message, true)); return; }
   if (S.view === 'tables') { S.view = 'settings'; S.setTab = 'tables'; } // ลิงก์เก่า
-  const views = { menu: menuView, packages: packagesView, floor: floorView, orders: ordersView, table: tableView, checkout: checkoutView, report: reportView, settings: settingsView, line: lineView };
+  const views = { menu: menuView, packages: packagesView, floor: floorView, orders: ordersView, table: tableView, checkout: checkoutView, report: reportView, settings: settingsView, line: lineView, import: importView, photos: photosView };
   const view = views[S.view] || floorView;
-  app.replaceChildren(bar(), h('main', { class: 'wrap' + (['orders', 'report', 'settings', 'line'].includes(S.view) ? ' full' : '') }, view()));
+  app.replaceChildren(bar(), h('main', { class: 'wrap' + (['orders', 'report', 'settings', 'line', 'import', 'photos'].includes(S.view) ? ' full' : '') }, view()));
 }
 // เริ่มทำงานอยู่ท้าย extra.js (ต้องโหลดไฟล์อื่นก่อน)

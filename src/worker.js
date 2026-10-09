@@ -1,7 +1,8 @@
 // ระบบร้านอาหาร — เซิร์ฟเวอร์บน Cloudflare Workers + ฐานข้อมูล D1
 // ส่วนที่ 1: ข้อมูลร้าน (เมนู + รูป, แพ็กเกจบุฟเฟต์, โต๊ะ)  ·  ส่วนที่ 2 อยู่ใน service.js
 
-import { all, first, run, HttpError, bad, text, int, baht, toBaht, idList, readJson } from './lib.js';
+import { all, first, run, HttpError, bad, text, int, baht, toBaht, idList, readJson, insertRows } from './lib.js';
+import { importRoutes } from './importer.js';
 import { SERVICE_SCHEMA, serviceRoutes, checkTableDeletable, getSettings, getQrImage } from './service.js';
 import { LINE_SCHEMA, lineRoutes, webhook, publicMenu, publicOrder, publicReserve, inboxCounts } from './line.js';
 
@@ -84,8 +85,7 @@ async function bulkTables(db, b) {
   const seats = int(b.seats, 'จำนวนที่นั่ง', { min: 1, max: 50, fallback: 4 });
   const zone = text(b.zone, 'โซน', { required: false, max: 30 });
   const s0 = await nextSort(db, 'dining_tables');
-  const ins = db.prepare('INSERT INTO dining_tables (name, seats, zone, sort) VALUES (?,?,?,?)');
-  await db.batch(Array.from({ length: count }, (_, i) => ins.bind(`${prefix} ${start + i}`.trim(), seats, zone, s0 + i)));
+  await insertRows(db, 'dining_tables', ['name', 'seats', 'zone', 'sort'], Array.from({ length: count }, (_, i) => [`${prefix} ${start + i}`.trim(), seats, zone, s0 + i]));
 }
 
 // ---------- เมนู ----------
@@ -223,7 +223,7 @@ async function handle(req, env, ctx) {
   }
   if (!url.pathname.startsWith('/api/')) throw new HttpError(404, 'ไม่พบหน้านี้');
   await requirePin(req, env, db, req.headers.get('x-pin'));
-  for (const [method, re, fn] of [...routes, ...serviceRoutes, ...lineRoutes]) {
+  for (const [method, re, fn] of [...routes, ...serviceRoutes, ...lineRoutes, ...importRoutes]) {
     const m = url.pathname.match(re);
     if (m && req.method === method) {
       const out = await fn(db, req, m[1] ? Number(m[1]) : undefined, env);

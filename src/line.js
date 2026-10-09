@@ -1,7 +1,7 @@
 // ส่วนที่ 4: บอท LINE OA — ตอบคำถาม, ดูเมนู, สั่งกลับบ้าน, จองโต๊ะ, ส่งต่อพนักงาน
 // ตอบกลับลูกค้าด้วย "reply message" ซึ่ง LINE ไม่นับโควตา (ฟรี)
 // ส่วนข้อความแจ้งผลการยืนยัน (push) นับโควตาของแพ็กเกจ LINE OA
-import { all, first, run, bad, int, text, toBaht, readJson, HttpError } from './lib.js';
+import { all, first, run, bad, int, text, toBaht, readJson, HttpError, insertRows } from './lib.js';
 import { getSettings } from './service.js';
 
 export const LINE_SCHEMA = [
@@ -315,11 +315,9 @@ async function acceptOrder(db, env, id) {
   const s = await run(db, 'INSERT INTO sessions (table_id, table_name, adults, opened_at) VALUES (NULL, ?, 1, ?)', label.slice(0, 60), now);
   const sid = s.meta.last_row_id;
   const ord = await run(db, 'INSERT INTO orders (session_id, round_no, created_at, note) VALUES (?,1,?,?)', sid, now, [`โทร ${o.phone}`, o.note].filter(Boolean).join(' · '));
-  const ins = db.prepare('INSERT INTO order_items (order_id, item_id, name, qty, in_package, unit_satang, note) VALUES (?,?,?,?,0,?,?)');
-  await db.batch([
-    ...items.map((i) => ins.bind(ord.meta.last_row_id, i.item_id, i.name, i.qty, i.unit_satang, i.note || '')),
-    db.prepare("UPDATE web_orders SET status = 'accepted', session_id = ? WHERE id = ?").bind(sid, id),
-  ]);
+  await insertRows(db, 'order_items', ['order_id', 'item_id', 'name', 'qty', 'in_package', 'unit_satang', 'note'],
+    items.map((i) => [ord.meta.last_row_id, i.item_id, i.name, i.qty, 0, i.unit_satang, i.note || '']));
+  await run(db, "UPDATE web_orders SET status = 'accepted', session_id = ? WHERE id = ?", sid, id);
   const notified = await push(env, o.user_id, [msg(`ร้านรับออเดอร์ของคุณ${o.name}แล้วค่ะ ✅\nยอดรวม ${baht(o.total_satang)}\n${o.pickup === 'asap' ? 'กำลังเตรียมอาหาร เสร็จแล้วรับที่ร้านได้เลยค่ะ' : `รับได้เวลา ${o.pickup} น. ค่ะ`}`)]);
   return { ok: true, session_id: sid, notified };
 }

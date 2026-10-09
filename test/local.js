@@ -11,10 +11,12 @@ const toSql = (v) => (v instanceof ArrayBuffer ? new Uint8Array(v) : ArrayBuffer
 
 export function createD1(file = ':memory:') {
   const sq = new DatabaseSync(file);
+  const counter = { n: 0 }; // นับจำนวนคำสั่งต่อคำขอ (Cloudflare แบบฟรีจำกัด 50)
   sq.exec('PRAGMA foreign_keys = ON');
   const stmt = (sql, args = []) => ({
     bind: (...a) => stmt(sql, a),
     _exec() {
+      counter.n++;
       const p = sq.prepare(sql);
       const a = args.map(toSql);
       if (/^\s*(SELECT|WITH)/i.test(sql)) return { results: p.all(...a).map((r) => ({ ...r })), meta: { changes: 0 } };
@@ -26,6 +28,7 @@ export function createD1(file = ':memory:') {
     async first() { return this._exec().results[0] ?? null; },
   });
   return {
+    counter,
     prepare: (sql) => stmt(sql),
     async batch(list) {
       sq.exec('BEGIN');
@@ -45,8 +48,9 @@ export function startLocal({ port, pin, dbFile = ':memory:', extraEnv = {} }) {
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/img/')) {
       const chunks = []; for await (const c of req) chunks.push(c);
       const body = chunks.length ? Buffer.concat(chunks) : undefined;
+      env.DB.counter.n = 0;
       const r = await worker.fetch(new Request(url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : body }), env);
-      res.writeHead(r.status, Object.fromEntries(r.headers));
+      res.writeHead(r.status, { ...Object.fromEntries(r.headers), 'x-d1-queries': String(env.DB.counter.n) });
       res.end(Buffer.from(await r.arrayBuffer()));
       return;
     }

@@ -31,3 +31,13 @@ export const idList = (arr, field) => (Array.isArray(arr) ? [...new Set(arr.map(
 
 
 export async function readJson(req) { try { return await req.json(); } catch { throw bad('รูปแบบข้อมูลไม่ถูกต้อง'); } }
+
+// ใส่หลายแถวในคำสั่งเดียว (ประหยัดจำนวนคำสั่งต่อครั้ง — แพ็กเกจฟรีของ Cloudflare จำกัดไว้)
+export async function insertRows(db, table, cols, rows) {
+  const per = Math.max(1, Math.floor(99 / cols.length));
+  for (let i = 0; i < rows.length; i += per) {
+    const part = rows.slice(i, i + per);
+    const ph = part.map(() => `(${cols.map(() => '?').join(',')})`).join(',');
+    await db.prepare(`INSERT INTO ${table} (${cols.join(',')}) VALUES ${ph}`).bind(...part.flat()).run();
+  }
+}

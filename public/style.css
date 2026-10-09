@@ -227,3 +227,14 @@ select.inp{appearance:auto}
 .copyrow code,.sub code{background:var(--well);padding:4px 8px;border-radius:6px;font-size:14px;word-break:break-all}
 .inp.area{height:auto;padding:10px 14px;line-height:1.5;resize:vertical}
 details>summary{list-style:revert}
+
+/* ---------- นำเข้าเมนู ---------- */
+.acts2{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.pbar{position:relative;height:28px;border-radius:14px;background:var(--well);overflow:hidden;max-width:520px}
+.pbar i{display:block;height:100%;background:var(--ok)}
+.pbar span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}
+.okbox{background:#E6F6EC;color:#0B4A26;border-radius:10px;padding:10px 12px;font-size:16px;font-weight:600}
+.scrollbox{max-height:60vh;overflow:auto}
+.tbl select.inp{height:44px;font-size:15px;min-width:200px}
+
+.ver{font-size:12px;color:#8A948F}
