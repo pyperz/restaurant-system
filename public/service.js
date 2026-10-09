@@ -189,6 +189,12 @@ function tableView() {
     const items = lines.map((l) => ({ item_id: l.m.id, qty: l.qty, mode: l.mode, note: S.cart[l.k]?.note || '' }));
     const r = await api('POST', `/api/sessions/${ses.id}/orders`, { items, note: noteInp.value });
     S.cart = {}; await loadDetail(); toast(`ส่งรอบที่ ${r.round_no} เข้าครัวแล้ว`);
+    // เครื่องที่เปิด "พิมพ์อัตโนมัติ" ไว้ พิมพ์ใบสั่งครัวทันทีที่ส่ง (ไม่ต้องรอรอบดึงข้อมูล) และจำไว้ไม่ให้พิมพ์ซ้ำ
+    const sent = S.detail.orders.find((o) => o.id === r.id);
+    if (sent && autoPrint.on()) {
+      const seen = autoPrint.seen(); seen.add(sent.id); autoPrint.remember(seen);
+      printOrder({ ...sent, table_name: ses.table_name });
+    }
   }, null, async () => render());
 
   const statusTh = { new: 'รอครัวรับ', cooking: 'กำลังทำ', ready: 'พร้อมเสิร์ฟ', done: 'เสิร์ฟแล้ว', cancelled: 'ยกเลิก' };
