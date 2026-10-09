@@ -171,7 +171,7 @@ function tableView() {
   const tile = (m) => {
     const k = `${mode}:${m.id}`, q = qtyOf(k);
     return h('div', { class: 'ic' + (q ? ' picked' : '') + (m.available ? '' : ' soldout') },
-      m.image ? h('img', { src: m.image, alt: '', loading: 'lazy' }) : h('div', { class: 'noimg' }, 'ไม่มีรูป'),
+      m.image ? h('img', { src: m.image, alt: '', loading: 'lazy' }) : h('div', { class: 'noimg emo' }, foodEmoji(m)),
       h('div', { class: 'icb' },
         h('div', { class: 'n' }, m.name),
         h('div', { class: 'p' }, m.available ? (mode === 'pkg' ? 'ในแพ็กเกจ' : money(m.price)) : 'หมด'),

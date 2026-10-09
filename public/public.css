@@ -38,3 +38,5 @@ main{max-width:640px;margin:0 auto;padding:16px 16px 110px}
 .row.total{font-size:20px;font-weight:700;padding:8px 0}
 .row2{display:flex;gap:10px}
 .row2>*{flex:1;min-width:0}
+
+.item .noimg.emo{font-size:32px;background:linear-gradient(135deg,#F6EFE4,#EDE3D3)}

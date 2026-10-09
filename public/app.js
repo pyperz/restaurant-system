@@ -6,7 +6,7 @@ const store = {
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
 };
 
-const APP_VERSION = 'v2026.10.10d';
+const APP_VERSION = 'v2026.10.10e';
 const S = { pin: store.get('pin'), view: store.get('view') || 'floor', data: null, sel: null };
 
 // ---------- ตัวช่วยสร้างหน้าจอ ----------
@@ -20,6 +20,18 @@ function h(tag, attrs = {}, ...kids) {
   }
   for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : String(kid));
   return el;
+}
+// ยังไม่มีรูป → โชว์ไอคอนตามประเภทอาหารแทน (ดูดีกว่าช่องว่าง)
+function foodEmoji(m) {
+  const rules = [[/เครื่องดื่ม|^น้ำเปล่า|^น้ำแข็ง|^น้ำอัดลม|เบียร์|โซดา|โค้ก|เป๊ปซี่|สไปรท์|แฟนต้า|รีเจนซี่|เหล้า|ชาเย็น|กาแฟ/, '🥤'], [/^ไอติม|ไอศกรีม|ผลไม้|ของหวาน|ขนม/, '🍨'],
+    [/^ยำ|ลาบ|น้ำตก|ส้มตำ|^ตำ|ประเภทส้มตำ/, '🥗'], [/^(แกง|ต้ม|ซุป)|สุกี้|ชาบู/, '🍲'],
+    [/วุ้นเส้น|เส้น|บะหมี่|มาม่า|ราเมน|ราดหน้า|ผัดไท|ซีอิ้ว|ขี้เมา|ผัดหมี่|เฝอ|ก๋วย|อูด้ง/, '🍜'], [/สปาเก็ตตี้|มักกะโรนี|พาสต้า/, '🍝'],
+    [/ข้าว/, '🍛'], [/^ทะเล|กุ้ง|ปลา|หอย|^ปู|ปูม้า|หมึก/, '🦐'], [/เนื้อ|วากิว|สเต็ก|เสือร้องไห้|^วัว/, '🥩'], [/^ไก่|ปีกไก่/, '🍗'],
+    [/^ไข่|ไข่เจียว/, '🍳'], [/ทอด|เฟรนฟราย|ปอเปี๊ยะ|ปอเปี้ยะ|ถั่ว|มะม่วงหิมพานต์/, '🍟'], [/ผัก|เห็ด|คะน้า|กะหล่ำ|แครอท|ฟักทอง|วากาเมะ|สาหร่าย/, '🥬'],
+    [/หมู|สามชั้น|ตับ|เบคอน|ไส้กรอก|แหนม/, '🥓'], [/กิมจิ|เกาหลี/, '🥘'], [/ชีส|เนย/, '🧀'], [/ลูกชิ้น|ชิกูวะ|เต้าหู้/, '🍢'],
+    [/ทานเล่น|appetizer/i, '🍟'], [/กับข้าว|ผัด|ราด|จานเดี่ยว/, '🍛']];
+  const hit = (t) => (rules.find(([re]) => re.test(t)) || [])[1];
+  return hit(m.name || '') || hit(m.category || '') || '🍽️';
 }
 const money = (n) => (n == null ? '—' : '฿' + Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 }));
 
@@ -79,7 +91,7 @@ function loginView() {
 
 // ---------- แถบด้านบน ----------
 function bar() {
-  const current = ['table', 'checkout'].includes(S.view) ? 'floor' : ['import', 'photos'].includes(S.view) ? 'menu' : S.view;
+  const current = ['table', 'checkout'].includes(S.view) ? 'floor' : ['import', 'photos', 'shoot'].includes(S.view) ? 'menu' : S.view;
   const tab = (key, label, badge) => h('button', { class: 'tab' + (current === key ? ' on' : ''), 'aria-current': current === key ? 'page' : null, onclick: () => {
     S.sel = null; S.open = null;
     if (key === 'line') S.inbox = null;
@@ -114,7 +126,7 @@ function menuView() {
   const inPkgs = (id) => packages.filter((p) => p.item_ids.includes(id));
 
   const rows = menu.map((m) => h('div', { class: 'mrow' + (m.id === S.sel ? ' sel' : '') },
-    m.image ? h('img', { class: 'thumb', src: m.image, alt: '', loading: 'lazy' }) : h('span', { class: 'thumb none', 'aria-hidden': 'true' }, 'ไม่มีรูป'),
+    m.image ? h('img', { class: 'thumb', src: m.image, alt: '', loading: 'lazy' }) : h('span', { class: 'thumb none emo', 'aria-hidden': 'true' }, foodEmoji(m)),
     h('button', { class: 'mn', style: 'border:0;background:none;text-align:left;padding:8px 0;color:inherit', onclick: () => { S.sel = m.id; render(); } }, m.name, m.category ? h('span', { class: 'mc' }, m.category) : null),
     h('span', { class: 'mp' }, money(m.price)),
     h('span', { class: 'pk' }, inPkgs(m.id).length ? inPkgs(m.id).map((p) => h('span', { class: 'tag' }, pkgName[p.id])) : h('span', { class: 'sub' }, 'นอกแพ็กเกจ')),
@@ -125,6 +137,7 @@ function menuView() {
   const list = h('section', { class: 'list' },
     h('div', { class: 'ph' }, h('span', {}, 'จัดการเมนู'), h('div', { class: 'acts2' },
       h('button', { class: 'btn ghost', onclick: () => { S.view = 'import'; S.imp = null; render(); } }, 'นำเข้าจากไฟล์'),
+      h('button', { class: 'btn ghost', onclick: () => { S.view = 'shoot'; render(); } }, 'ถ่ายรูปไล่ทีละจาน'),
       h('button', { class: 'btn ghost', onclick: () => { S.view = 'photos'; S.pics = null; render(); } }, 'ใส่รูปหลายรูป'),
       h('button', { class: 'btn blue', onclick: () => { S.sel = 'new'; render(); } }, '+ เพิ่มเมนู'))),
     menu.length ? h('div', { class: 'colhead' }, h('span', { style: 'width:56px' }), h('span', { style: 'flex:1' }, 'ชื่อเมนู / หมวด'),
@@ -259,8 +272,8 @@ function render() {
   if (!S.pin) { app.replaceChildren(loginView()); return; }
   if (!S.data) { app.replaceChildren(h('div', { class: 'login' }, 'กำลังโหลด…')); load().catch((e) => toast(e.message, true)); return; }
   if (S.view === 'tables') { S.view = 'settings'; S.setTab = 'tables'; } // ลิงก์เก่า
-  const views = { menu: menuView, packages: packagesView, floor: floorView, orders: ordersView, table: tableView, checkout: checkoutView, report: reportView, settings: settingsView, line: lineView, import: importView, photos: photosView };
+  const views = { menu: menuView, packages: packagesView, floor: floorView, orders: ordersView, table: tableView, checkout: checkoutView, report: reportView, settings: settingsView, line: lineView, import: importView, photos: photosView, shoot: shootView };
   const view = views[S.view] || floorView;
-  app.replaceChildren(bar(), h('main', { class: 'wrap' + (['orders', 'report', 'settings', 'line', 'import', 'photos'].includes(S.view) ? ' full' : '') }, view()));
+  app.replaceChildren(bar(), h('main', { class: 'wrap' + (['orders', 'report', 'settings', 'line', 'import', 'photos', 'shoot'].includes(S.view) ? ' full' : '') }, view()));
 }
 // เริ่มทำงานอยู่ท้าย extra.js (ต้องโหลดไฟล์อื่นก่อน)

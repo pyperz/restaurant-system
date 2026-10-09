@@ -17,6 +17,17 @@
 'use strict';
 const t = new URLSearchParams(location.search).get('t') || '';
 const $ = (s) => document.querySelector(s);
+function foodEmoji(m) {
+  const rules = [[/เครื่องดื่ม|^น้ำเปล่า|^น้ำแข็ง|^น้ำอัดลม|เบียร์|โซดา|โค้ก|เป๊ปซี่|สไปรท์|แฟนต้า|รีเจนซี่|เหล้า|ชาเย็น|กาแฟ/, '🥤'], [/^ไอติม|ไอศกรีม|ผลไม้|ของหวาน|ขนม/, '🍨'],
+    [/^ยำ|ลาบ|น้ำตก|ส้มตำ|^ตำ|ประเภทส้มตำ/, '🥗'], [/^(แกง|ต้ม|ซุป)|สุกี้|ชาบู/, '🍲'],
+    [/วุ้นเส้น|เส้น|บะหมี่|มาม่า|ราเมน|ราดหน้า|ผัดไท|ซีอิ้ว|ขี้เมา|ผัดหมี่|เฝอ|ก๋วย|อูด้ง/, '🍜'], [/สปาเก็ตตี้|มักกะโรนี|พาสต้า/, '🍝'],
+    [/ข้าว/, '🍛'], [/^ทะเล|กุ้ง|ปลา|หอย|^ปู|ปูม้า|หมึก/, '🦐'], [/เนื้อ|วากิว|สเต็ก|เสือร้องไห้|^วัว/, '🥩'], [/^ไก่|ปีกไก่/, '🍗'],
+    [/^ไข่|ไข่เจียว/, '🍳'], [/ทอด|เฟรนฟราย|ปอเปี๊ยะ|ปอเปี้ยะ|ถั่ว|มะม่วงหิมพานต์/, '🍟'], [/ผัก|เห็ด|คะน้า|กะหล่ำ|แครอท|ฟักทอง|วากาเมะ|สาหร่าย/, '🥬'],
+    [/หมู|สามชั้น|ตับ|เบคอน|ไส้กรอก|แหนม/, '🥓'], [/กิมจิ|เกาหลี/, '🥘'], [/ชีส|เนย/, '🧀'], [/ลูกชิ้น|ชิกูวะ|เต้าหู้/, '🍢'],
+    [/ทานเล่น|appetizer/i, '🍟'], [/กับข้าว|ผัด|ราด|จานเดี่ยว/, '🍛']];
+  const hit = (t) => (rules.find(([re]) => re.test(t)) || [])[1];
+  return hit(m.name || '') || hit(m.category || '') || '🍽️';
+}
 const money = (n) => '฿' + Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 });
 function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);
@@ -49,7 +60,7 @@ function menuView() {
     list.length ? h('div', { class: 'items' }, list.map((m) => {
       const q = cart[m.id]?.qty || 0;
       return h('div', { class: 'item' + (m.available ? '' : ' out') },
-        m.image ? h('img', { src: m.image, alt: '', loading: 'lazy' }) : h('div', { class: 'noimg' }, 'ไม่มีรูป'),
+        m.image ? h('img', { src: m.image, alt: '', loading: 'lazy' }) : h('div', { class: 'noimg emo' }, foodEmoji(m)),
         h('div', { class: 'info' }, h('div', { class: 'name' }, m.name), h('div', { class: 'muted' }, m.available ? money(m.price) : 'หมดแล้ว')),
         m.available ? h('div', { class: 'stp' },
           q ? h('button', { type: 'button', 'aria-label': `ลด ${m.name}`, onclick: () => setQty(m.id, q - 1) }, '−') : null,
