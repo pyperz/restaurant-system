@@ -1,0 +1,40 @@
+/* หน้าเว็บสำหรับลูกค้า (สั่งกลับบ้าน / จองโต๊ะ) เปิดบนมือถือจาก LINE */
+:root{--ink:#1B2320;--muted:#4A554F;--line:#C9D0CB;--ground:#F4F5F2;--well:#E7EAE5;--act:#D9480F}
+*{box-sizing:border-box;font-family:'Noto Sans Thai',system-ui,sans-serif}
+html,body{margin:0;background:var(--ground);color:var(--ink)}
+button{font:inherit;cursor:pointer}
+.top{background:var(--ink);color:#fff;padding:18px 16px 14px}
+.top h1{margin:0;font-size:21px}
+.top .muted{color:#C3CCC7;margin:4px 0 0;font-size:14px}
+main{max-width:640px;margin:0 auto;padding:16px 16px 110px}
+.muted{color:var(--muted);font-size:14px}
+.center{text-align:center}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;margin-bottom:10px}
+.chip{flex:none;min-height:40px;padding:0 14px;border-radius:999px;border:2px solid var(--line);background:#fff;font-size:15px;font-weight:600;color:var(--ink)}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.items{display:flex;flex-direction:column;gap:10px}
+.item{display:flex;align-items:center;gap:12px;background:#fff;border-radius:14px;padding:10px}
+.item.out{opacity:.55}
+.item img,.item .noimg{width:72px;height:72px;border-radius:10px;object-fit:cover;flex:none;background:var(--well)}
+.item .noimg{display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)}
+.info{flex:1;min-width:0}
+.name{font-size:16px;font-weight:600}
+.stp{display:flex;align-items:center;gap:8px}
+.stp button{width:44px;height:44px;border-radius:12px;border:2px solid var(--line);background:#fff;font-size:22px;font-weight:700;color:var(--ink)}
+.stp span{min-width:22px;text-align:center;font-weight:700;font-size:18px}
+#cartbar{position:fixed;left:0;right:0;bottom:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:rgba(244,245,242,.96);border-top:1px solid var(--line)}
+.btn{height:52px;padding:0 18px;border:0;border-radius:12px;background:var(--act);color:#fff;font-size:17px;font-weight:700}
+.btn:disabled{opacity:.6}
+.btn.ghost{background:#fff;color:var(--ink);border:2px solid var(--line)}
+.btn.wide{width:100%;max-width:640px;display:block;margin:0 auto}
+.card{background:#fff;border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:8px}
+.card h2{margin:0 0 6px;font-size:20px}
+.card label{font-size:15px;font-weight:600;margin-top:6px}
+.inp{height:48px;border:2px solid var(--line);border-radius:10px;padding:0 12px;font-size:16px;background:#fff;color:var(--ink);width:100%;min-width:0}
+.inp:focus{outline:none;border-color:var(--ink)}
+.inp.small{height:40px;font-size:14px}
+.line{display:flex;flex-direction:column;gap:6px;padding:6px 0;border-bottom:1px solid var(--well)}
+.row{display:flex;justify-content:space-between;gap:10px}
+.row.total{font-size:20px;font-weight:700;padding:8px 0}
+.row2{display:flex;gap:10px}
+.row2>*{flex:1;min-width:0}

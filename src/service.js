@@ -35,6 +35,7 @@ export const SERVICE_SCHEMA = [
   `CREATE INDEX IF NOT EXISTS order_items_order ON order_items(order_id)`,
   `CREATE INDEX IF NOT EXISTS sessions_closed ON sessions(closed_at)`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS shop_files (key TEXT PRIMARY KEY, mime TEXT NOT NULL, data BLOB NOT NULL, v INTEGER NOT NULL DEFAULT 1)`,
 ];
 
 const ACTIVE = ['new', 'cooking', 'ready'];
@@ -218,12 +219,24 @@ const SETTINGS = {
     return d;
   },
   paper: (v) => (['58', '80'].includes(String(v)) ? String(v) : '80'),
+  pay_qr: (v) => (v === 'image' ? 'image' : 'promptpay'), // ใช้รูป QR ที่อัปโหลด หรือสร้างจากเลข PromptPay
+  // ข้อมูลที่บอท LINE ใช้ตอบลูกค้า
+  open_hours: (v) => text(v, 'เวลาเปิด-ปิด', { required: false, max: 120 }),
+  address: (v) => text(v, 'ที่อยู่', { required: false, max: 200 }),
+  phone: (v) => text(v, 'เบอร์โทร', { required: false, max: 30 }),
+  shop_info: (v) => text(v, 'ข้อมูลเพิ่มเติม', { required: false, max: 1500 }),
+  bot_on: (v) => (v === '0' || v === false ? '0' : '1'),
+  bot_ai: (v) => (v === '0' || v === false ? '0' : '1'),
+  takeaway_on: (v) => (v === '0' || v === false ? '0' : '1'),
+  reserve_on: (v) => (v === '0' || v === false ? '0' : '1'),
   bill_footer: (v) => text(v, 'ข้อความท้ายบิล', { required: false, max: 120 }),
 };
 export async function getSettings(db) {
-  const rows = await all(db, 'SELECT key, value FROM settings');
-  const out = { shop_name: '', promptpay_id: '', paper: '80', bill_footer: '' };
+  const [rows, qr] = await Promise.all([all(db, 'SELECT key, value FROM settings'), first(db, "SELECT v FROM shop_files WHERE key = 'qr'")]);
+  const out = { shop_name: '', promptpay_id: '', paper: '80', bill_footer: '', pay_qr: 'promptpay',
+    open_hours: '', address: '', phone: '', shop_info: '', bot_on: '1', bot_ai: '1', takeaway_on: '1', reserve_on: '1' };
   for (const r of rows) if (r.key in SETTINGS) out[r.key] = r.value;
+  out.qr_image = qr ? `/img/qr?v=${qr.v}` : null;
   return out;
 }
 async function saveSettings(db, b) {
@@ -231,6 +244,25 @@ async function saveSettings(db, b) {
   const stmts = Object.entries(SETTINGS).filter(([k]) => k in b).map(([k, fn]) => ins.bind(k, fn(b[k])));
   if (stmts.length) await db.batch(stmts);
   return getSettings(db);
+}
+
+// รูป QR รับเงินที่ร้านอัปโหลดเอง (เช่น QR จาก K SHOP / แม่มณี)
+const QR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+async function putQrImage(db, req) {
+  const mime = (req.headers.get('content-type') || '').split(';')[0].trim();
+  if (!QR_TYPES.has(mime)) throw bad('รองรับเฉพาะรูป PNG, JPG หรือ WEBP');
+  const buf = await req.arrayBuffer();
+  if (!buf.byteLength) throw bad('ไม่พบไฟล์รูป');
+  if (buf.byteLength > 1_500_000) throw bad('รูปใหญ่เกินไป');
+  await run(db, `INSERT INTO shop_files (key, mime, data, v) VALUES ('qr', ?, ?, 1)
+    ON CONFLICT(key) DO UPDATE SET mime = excluded.mime, data = excluded.data, v = shop_files.v + 1`, mime, buf);
+  return getSettings(db);
+}
+export async function getQrImage(db) {
+  const row = await first(db, "SELECT mime, data FROM shop_files WHERE key = 'qr'");
+  if (!row) return new Response('ไม่พบรูป', { status: 404 });
+  const body = row.data instanceof ArrayBuffer ? row.data : new Uint8Array(row.data);
+  return new Response(body, { headers: { 'Content-Type': row.mime, 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' } });
 }
 
 // ---------- รายงานยอดขาย (ใช้วันตามเวลาไทย) ----------
@@ -285,6 +317,8 @@ export async function checkTableDeletable(db, id) {
 
 export const serviceRoutes = [
   ['PUT', /^\/api\/settings$/, async (db, req) => saveSettings(db, await readJson(req))],
+  ['PUT', /^\/api\/settings\/qr-image$/, (db, req) => putQrImage(db, req)],
+  ['DELETE', /^\/api\/settings\/qr-image$/, async (db) => { await run(db, "DELETE FROM shop_files WHERE key = 'qr'"); return getSettings(db); }],
   ['GET', /^\/api\/report$/, (db, req) => report(db, new URL(req.url))],
   ['GET', /^\/api\/live$/, (db) => live(db)],
   ['POST', /^\/api\/sessions$/, async (db, req) => openSession(db, await readJson(req))],

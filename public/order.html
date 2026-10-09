@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1B2320">
+<title>สั่งกลับบ้าน</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public.css">
+</head>
+<body>
+<header class="top"><h1 id="shop">สั่งกลับบ้าน</h1><p id="hours" class="muted"></p></header>
+<main id="main"><p class="muted center">กำลังโหลดเมนู…</p></main>
+<div id="cartbar" hidden><button type="button" id="gocart" class="btn wide"></button></div>
+<script>
+'use strict';
+const t = new URLSearchParams(location.search).get('t') || '';
+const $ = (s) => document.querySelector(s);
+const money = (n) => '฿' + Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k.startsWith('on')) el.addEventListener(k.slice(2), v); else if (k === 'class') el.className = v; else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat(Infinity)) if (c != null && c !== false) el.append(c instanceof Node ? c : String(c));
+  return el;
+}
+let data = null, cat = '', step = 'menu';
+const cart = {}; // id -> { qty, note }
+
+function itemsInCart() { return Object.entries(cart).map(([id, v]) => ({ m: data.menu.find((x) => x.id === +id), ...v })).filter((l) => l.m); }
+const total = () => itemsInCart().reduce((a, l) => a + l.qty * l.m.price, 0);
+
+function renderBar() {
+  const n = itemsInCart().reduce((a, l) => a + l.qty, 0);
+  $('#cartbar').hidden = !n || step !== 'menu';
+  $('#gocart').textContent = `ดูตะกร้า ${n} รายการ · ${money(total())}`;
+}
+function setQty(id, q) { if (q <= 0) delete cart[id]; else cart[id] = { ...(cart[id] || {}), qty: Math.min(50, q) }; render(); }
+
+function menuView() {
+  const cats = [...new Set(data.menu.map((m) => m.category).filter(Boolean))];
+  const list = data.menu.filter((m) => !cat || m.category === cat);
+  return [
+    cats.length > 1 ? h('div', { class: 'chips' }, h('button', { class: 'chip' + (!cat ? ' on' : ''), onclick: () => { cat = ''; render(); } }, 'ทั้งหมด'),
+      cats.map((c) => h('button', { class: 'chip' + (cat === c ? ' on' : ''), onclick: () => { cat = c; render(); } }, c))) : null,
+    list.length ? h('div', { class: 'items' }, list.map((m) => {
+      const q = cart[m.id]?.qty || 0;
+      return h('div', { class: 'item' + (m.available ? '' : ' out') },
+        m.image ? h('img', { src: m.image, alt: '', loading: 'lazy' }) : h('div', { class: 'noimg' }, 'ไม่มีรูป'),
+        h('div', { class: 'info' }, h('div', { class: 'name' }, m.name), h('div', { class: 'muted' }, m.available ? money(m.price) : 'หมดแล้ว')),
+        m.available ? h('div', { class: 'stp' },
+          q ? h('button', { type: 'button', 'aria-label': `ลด ${m.name}`, onclick: () => setQty(m.id, q - 1) }, '−') : null,
+          q ? h('span', {}, q) : null,
+          h('button', { type: 'button', 'aria-label': `เพิ่ม ${m.name}`, onclick: () => setQty(m.id, q + 1) }, '+')) : null);
+    })) : h('p', { class: 'muted center' }, 'ยังไม่มีเมนูให้สั่งค่ะ'),
+  ];
+}
+
+function cartView() {
+  const lines = itemsInCart();
+  const now = new Date(Date.now() + 7 * 3600000);
+  const slots = [];
+  for (let m = Math.ceil((now.getUTCHours() * 60 + now.getUTCMinutes() + 20) / 15) * 15; m < 24 * 60 && slots.length < 40; m += 15) {
+    slots.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+  }
+  const form = h('form', { class: 'card', onsubmit: async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector('button[type=submit]'); btn.disabled = true; btn.textContent = 'กำลังส่ง…';
+    try {
+      const r = await fetch('/api/public/order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        t, name: form.elements.name.value, phone: form.elements.phone.value, pickup: form.elements.pickup.value, note: form.elements.note.value,
+        items: lines.map((l) => ({ item_id: l.m.id, qty: l.qty, note: cart[l.m.id]?.note || '' })) }) });
+      const out = await r.json();
+      if (!r.ok) throw new Error(out.error || 'ส่งไม่สำเร็จ');
+      step = 'done'; render(out);
+    } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = 'ยืนยันสั่งอาหาร'; }
+  } },
+    h('h2', {}, 'ตะกร้าของคุณ'),
+    lines.map((l) => h('div', { class: 'line' },
+      h('div', { class: 'row' }, h('span', {}, `${l.qty}× ${l.m.name}`), h('span', {}, money(l.qty * l.m.price))),
+      h('input', { class: 'inp small', placeholder: 'หมายเหตุ เช่น ไม่เผ็ด', maxlength: 100, value: l.note || '', 'aria-label': `หมายเหตุ ${l.m.name}`, oninput: (e) => { cart[l.m.id].note = e.target.value; } }))),
+    h('div', { class: 'row total' }, h('span', {}, 'รวม'), h('span', {}, money(total()))),
+    h('label', { for: 'name' }, 'ชื่อผู้สั่ง'), h('input', { class: 'inp', id: 'name', name: 'name', required: true, maxlength: 60, autocomplete: 'name' }),
+    h('label', { for: 'phone' }, 'เบอร์โทร'), h('input', { class: 'inp', id: 'phone', name: 'phone', required: true, inputmode: 'tel', autocomplete: 'tel', maxlength: 15 }),
+    h('label', { for: 'pickup' }, 'เวลารับอาหารที่ร้าน'),
+    h('select', { class: 'inp', id: 'pickup', name: 'pickup' }, h('option', { value: 'asap' }, 'เร็วที่สุด'), slots.map((s) => h('option', { value: s }, `${s} น.`))),
+    h('label', { for: 'note' }, 'หมายเหตุถึงร้าน (ไม่บังคับ)'), h('input', { class: 'inp', id: 'note', name: 'note', maxlength: 200 }),
+    h('p', { class: 'muted' }, 'ชำระเงินตอนรับอาหารที่ร้าน · ร้านจะยืนยันออเดอร์ก่อนเริ่มทำ'),
+    h('div', { class: 'row2' }, h('button', { type: 'button', class: 'btn ghost', onclick: () => { step = 'menu'; render(); } }, 'เลือกเพิ่ม'), h('button', { type: 'submit', class: 'btn' }, 'ยืนยันสั่งอาหาร')));
+  return [form];
+}
+
+function render(result) {
+  const main = $('#main');
+  if (step === 'done') {
+    main.replaceChildren(h('div', { class: 'card center' }, h('h2', {}, 'ส่งออเดอร์แล้ว'),
+      h('p', {}, `ยอดรวม ${money(result.total)}`),
+      h('p', { class: 'muted' }, result.linked ? 'ร้านจะยืนยันออเดอร์ทาง LINE ค่ะ' : `ร้านจะยืนยันออเดอร์ค่ะ${data.phone ? ` สอบถามโทร ${data.phone}` : ''}`)));
+    for (const k in cart) delete cart[k];
+  } else main.replaceChildren(...(step === 'cart' ? cartView() : menuView()));
+  renderBar();
+}
+
+$('#gocart').onclick = () => { step = 'cart'; render(); scrollTo(0, 0); };
+fetch('/api/public/menu?t=' + encodeURIComponent(t)).then((r) => r.json()).then((d) => {
+  data = d;
+  $('#shop').textContent = d.shop_name ? `${d.shop_name} · สั่งกลับบ้าน` : 'สั่งกลับบ้าน';
+  document.title = $('#shop').textContent;
+  $('#hours').textContent = d.open_hours ? `เปิด ${d.open_hours}` : '';
+  if (!d.takeaway_on) { $('#main').replaceChildren(h('p', { class: 'muted center' }, 'ขณะนี้ร้านปิดรับสั่งกลับบ้านค่ะ')); return; }
+  render();
+}).catch(() => { $('#main').replaceChildren(h('p', { class: 'muted center' }, 'โหลดเมนูไม่สำเร็จ ลองใหม่อีกครั้งค่ะ')); });
+</script>
+</body>
+</html>

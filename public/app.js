@@ -23,15 +23,15 @@ function h(tag, attrs = {}, ...kids) {
 const money = (n) => (n == null ? '—' : '฿' + Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 }));
 
 // ย่อรูปบน iPad ก่อนส่ง (ด้านยาวสุด 800px, JPG) รูปจะเล็กลงมาก โหลดเร็ว
-async function shrinkImage(file) {
+async function shrinkImage(file, max = 800, type = 'image/jpeg') {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => fail(new Error('เปิดไฟล์รูปนี้ไม่ได้ ลองเลือกรูปอื่น')); i.src = url; });
-    const scale = Math.min(1, 800 / Math.max(img.naturalWidth, img.naturalHeight));
+    const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
     const c = document.createElement('canvas');
     c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
     const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
-    return await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.82));
+    return await new Promise((ok) => c.toBlob(ok, type, 0.82));
   } finally { URL.revokeObjectURL(url); }
 }
 
@@ -79,15 +79,16 @@ function loginView() {
 // ---------- แถบด้านบน ----------
 function bar() {
   const current = ['table', 'checkout'].includes(S.view) ? 'floor' : S.view;
-  const tab = (key, label) => h('button', { class: 'tab' + (current === key ? ' on' : ''), 'aria-current': current === key ? 'page' : null, onclick: () => {
+  const tab = (key, label, badge) => h('button', { class: 'tab' + (current === key ? ' on' : ''), 'aria-current': current === key ? 'page' : null, onclick: () => {
     S.sel = null; S.open = null;
+    if (key === 'line') S.inbox = null;
     if (key === 'report') S.rep.data = null;
     if (key === 'floor' || key === 'orders') { go(key); return; }
     S.view = key; store.set('view', key); render();
-  } }, label);
+  } }, label, badge ? h('span', { class: 'tbadge', 'aria-label': `${badge} งานใหม่` }, badge) : null);
   return h('header', { class: 'bar' },
     h('nav', { class: 'tabs', 'aria-label': 'เมนูหลัก' }, h('span', { class: 'shopn' }, S.data?.settings?.shop_name || 'ร้านของเรา'),
-      tab('floor', 'ผังโต๊ะ'), tab('orders', 'ออเดอร์'), tab('menu', 'เมนู'), tab('packages', 'แพ็กเกจ'), tab('report', 'รายงาน'), tab('settings', 'ตั้งค่า')),
+      tab('floor', 'ผังโต๊ะ'), tab('orders', 'ออเดอร์'), tab('menu', 'เมนู'), tab('packages', 'แพ็กเกจ'), tab('line', 'LINE', inboxTotal(S.live?.inbox)), tab('report', 'รายงาน'), tab('settings', 'ตั้งค่า')),
     h('button', { class: 'logout', onclick: () => { S.pin = null; store.set('pin', null); render(); } }, 'ออกจากระบบ'));
 }
 
@@ -250,8 +251,8 @@ function render() {
   if (!S.pin) { app.replaceChildren(loginView()); return; }
   if (!S.data) { app.replaceChildren(h('div', { class: 'login' }, 'กำลังโหลด…')); load().catch((e) => toast(e.message, true)); return; }
   if (S.view === 'tables') { S.view = 'settings'; S.setTab = 'tables'; } // ลิงก์เก่า
-  const views = { menu: menuView, packages: packagesView, floor: floorView, orders: ordersView, table: tableView, checkout: checkoutView, report: reportView, settings: settingsView };
+  const views = { menu: menuView, packages: packagesView, floor: floorView, orders: ordersView, table: tableView, checkout: checkoutView, report: reportView, settings: settingsView, line: lineView };
   const view = views[S.view] || floorView;
-  app.replaceChildren(bar(), h('main', { class: 'wrap' + (['orders', 'report', 'settings'].includes(S.view) ? ' full' : '') }, view()));
+  app.replaceChildren(bar(), h('main', { class: 'wrap' + (['orders', 'report', 'settings', 'line'].includes(S.view) ? ' full' : '') }, view()));
 }
 // เริ่มทำงานอยู่ท้าย extra.js (ต้องโหลดไฟล์อื่นก่อน)

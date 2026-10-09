@@ -215,3 +215,15 @@ select.inp{appearance:auto}
   .tk .qrbox svg{max-width:40mm}
   .tk-cut{height:6mm}
 }
+.qrimg{display:block;width:100%;max-width:260px;height:auto;margin:0 auto;image-rendering:auto}
+.qrbox.big{width:220px;flex:none}
+.qrsec{display:flex;flex-direction:column;gap:12px;padding:16px;border:2px solid var(--well);border-radius:14px}
+@media print{.tk .qrimg{max-width:40mm}}
+
+/* ---------- ส่วนที่ 4: LINE ---------- */
+.tbadge{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;margin-left:6px;border-radius:11px;background:var(--act);color:#fff;font-size:13px;font-weight:700}
+.warnpanel{border:2px solid #F0B48A;background:#FFF8F2}
+.copyrow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.copyrow code,.sub code{background:var(--well);padding:4px 8px;border-radius:6px;font-size:14px;word-break:break-all}
+.inp.area{height:auto;padding:10px 14px;line-height:1.5;resize:vertical}
+details>summary{list-style:revert}

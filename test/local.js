@@ -38,8 +38,8 @@ export function createD1(file = ':memory:') {
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
 
-export function startLocal({ port, pin, dbFile = ':memory:' }) {
-  const env = { DB: createD1(dbFile), ADMIN_PIN: pin };
+export function startLocal({ port, pin, dbFile = ':memory:', extraEnv = {} }) {
+  const env = { DB: createD1(dbFile), ADMIN_PIN: pin, ...extraEnv };
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://localhost:${port}`);
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/img/')) {

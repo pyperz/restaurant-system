@@ -2,21 +2,27 @@
 // ส่วนที่ 3: ตั้งค่าร้าน, QR PromptPay, พิมพ์ใบสั่งครัว/ใบแจ้งยอด, รายงานยอดขาย
 // (ใช้ตัวช่วยจาก app.js, service.js และ qr.js)
 
-const settings = () => S.data?.settings || { shop_name: '', promptpay_id: '', paper: '80', bill_footer: '' };
-const PAY_TH = { cash: 'เงินสด', promptpay: 'PromptPay', transfer: 'โอน', other: 'อื่น ๆ' };
+const settings = () => S.data?.settings || { shop_name: '', promptpay_id: '', paper: '80', bill_footer: '', pay_qr: 'promptpay', qr_image: null };
+const PAY_TH = { cash: 'เงินสด', promptpay: 'สแกน QR', transfer: 'โอน', other: 'อื่น ๆ' };
 const fmtTime = (ms) => new Date(ms).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
 const fmtDate = (ms) => new Date(ms).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'Asia/Bangkok' });
 const thaiToday = (offsetDays = 0) => new Date(Date.now() + 7 * 3600000 + offsetDays * 86400000).toISOString().slice(0, 10);
 
-// ---------- QR PromptPay ----------
-function promptPayQR(amount, px = 6) {
-  const id = settings().promptpay_id;
-  if (!id) return null;
+// ---------- QR รับเงิน ----------
+// แบบ 1: รูป QR ที่ร้านอัปโหลด (เช่น K SHOP / แม่มณี) — ลูกค้ากรอกยอดเอง
+// แบบ 2: สร้าง QR PromptPay จากเลขบัญชี พร้อมยอดเงิน
+const qrMode = () => (settings().pay_qr === 'image' && settings().qr_image ? 'image' : settings().promptpay_id ? 'promptpay' : null);
+const hasPayQR = () => !!qrMode();
+function paymentQR(amount, px = 6) {
+  const mode = qrMode();
+  if (mode === 'image') return h('div', { class: 'qrbox' }, h('img', { class: 'qrimg', src: settings().qr_image, alt: 'QR รับเงินของร้าน' }));
+  if (mode !== 'promptpay') return null;
   const box = h('div', { class: 'qrbox' });
-  try { box.innerHTML = QR.svg(promptPayPayload(id, amount), { px, label: `QR PromptPay ${money(amount)}` }); }
+  try { box.innerHTML = QR.svg(promptPayPayload(settings().promptpay_id, amount), { px, label: `QR PromptPay ${money(amount)}` }); }
   catch (e) { box.textContent = e.message; }
   return box;
 }
+const qrHint = (amount) => (qrMode() === 'image' ? `ให้ลูกค้าสแกนแล้วกรอกยอด ${money(amount)}` : 'สแกนจ่ายด้วยแอปธนาคาร ยอดเงินขึ้นให้อัตโนมัติ');
 
 // ---------- พิมพ์ผ่านเบราว์เซอร์ ----------
 // ใช้ได้กับเครื่องพิมพ์ที่เครื่องนี้สั่งพิมพ์ได้อยู่แล้ว (ตั้งขนาดกระดาษ 58/80 มม. ในหน้าตั้งค่าร้าน)
@@ -25,7 +31,9 @@ function printNodes(...nodes) {
   area.className = 'paper' + settings().paper;
   area.replaceChildren(...nodes.flat());
   document.getElementById('pagesize').textContent = `@page{size:${settings().paper}mm auto;margin:0}`;
-  setTimeout(() => window.print(), 50);
+  // รอรูป (เช่น QR) โหลดเสร็จก่อนสั่งพิมพ์
+  const imgs = [...area.querySelectorAll('img')].map((i) => (i.complete ? null : new Promise((ok) => { i.onload = i.onerror = ok; })));
+  Promise.all(imgs).then(() => setTimeout(() => window.print(), 50));
 }
 function kitchenTicket(o) {
   return h('div', { class: 'tk' },
@@ -59,7 +67,7 @@ function billDoc(d, p, total, withQR) {
     num(p.discount) ? row('ส่วนลด', '-' + money(num(p.discount))) : null,
     h('hr'),
     h('div', { class: 'tk-row tk-mid' }, h('span', {}, 'ยอดชำระ'), h('span', {}, money(total))),
-    withQR ? [h('div', { class: 'tk-sm', style: 'text-align:center;margin-top:6px' }, 'สแกนจ่ายด้วย PromptPay'), promptPayQR(total, 4)] : null,
+    withQR ? [h('div', { class: 'tk-sm', style: 'text-align:center;margin-top:6px' }, qrHint(total)), paymentQR(total, 4)] : null,
     h('div', { class: 'tk-sm', style: 'text-align:center;margin-top:6px' }, st.bill_footer || 'ขอบคุณที่ใช้บริการ'),
     h('div', { class: 'tk-sm', style: 'text-align:center' }, '(ใบแจ้งยอด ไม่ใช่ใบกำกับภาษี)'),
     h('div', { class: 'tk-cut' }));
@@ -98,6 +106,8 @@ function settingsView() {
 
   const paper = h('select', { class: 'inp', id: 'f_paper', name: 'paper' },
     h('option', { value: '80', selected: st.paper === '80' }, '80 มม. (ใหญ่)'), h('option', { value: '58', selected: st.paper === '58' }, '58 มม. (เล็ก)'));
+  // ---- QR รับเงิน ----
+  S.qrTab = S.qrTab || (st.pay_qr === 'image' ? 'image' : 'promptpay');
   const preview = h('div', { class: 'qrprev' });
   const showQR = (id) => {
     preview.replaceChildren();
@@ -106,21 +116,44 @@ function settingsView() {
     const box = h('div', { class: 'qrbox' }); box.innerHTML = QR.svg(promptPayPayload(d, 1), { px: 5, label: 'ตัวอย่าง QR 1 บาท' });
     preview.append(box, h('div', { class: 'sub' }, 'ลองสแกนด้วยแอปธนาคาร ควรขึ้นชื่อบัญชีร้าน และยอด 1 บาท (ไม่ต้องโอนจริง)'));
   };
+  const qrPicker = h('input', { type: 'file', accept: 'image/*', id: 'f_qrimg', class: 'sr', onchange: async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    // QR ต้องคมชัด: ย่อไม่เกิน 1200px และเก็บเป็น PNG
+    act(async () => { const blob = await shrinkImage(f, 1200, 'image/png'); await api('PUT', '/api/settings/qr-image', blob); await api('PUT', '/api/settings', { pay_qr: 'image' }); }, 'อัปโหลดรูป QR แล้ว');
+  } });
+  const imagePane = h('div', { class: 'qrprev' },
+    st.qr_image ? h('div', { class: 'qrbox big' }, h('img', { class: 'qrimg', src: st.qr_image, alt: 'รูป QR รับเงินของร้าน' })) : h('div', { class: 'photo', style: 'width:220px;height:220px;flex:none' }, 'ยังไม่มีรูป QR'),
+    h('div', { style: 'display:flex;flex-direction:column;gap:10px' },
+      h('div', { class: 'sub' }, 'บันทึกรูป QR รับเงินจากแอป K SHOP (หรือแอปธนาคารอื่น) เป็นรูปภาพ แล้วอัปโหลดที่นี่ ตอนคิดเงินระบบจะแสดงรูปนี้พร้อมยอดเงิน ลูกค้าสแกนแล้วกรอกยอดเอง'),
+      h('div', { class: 'sub' }, 'แนะนำ: ครอปรูปให้เหลือเฉพาะตัว QR ก่อนอัปโหลด จะสแกนง่ายกว่า และพิมพ์บนเครื่องพิมพ์ความร้อนได้ชัดกว่า'),
+      h('label', { for: 'f_qrimg', class: 'btn blue filebtn' }, st.qr_image ? 'เปลี่ยนรูป QR' : 'อัปโหลดรูป QR'), qrPicker,
+      st.qr_image ? h('button', { type: 'button', class: 'btn ghost', onclick: () => { if (confirm('ลบรูป QR นี้ใช่ไหม?')) act(() => api('DELETE', '/api/settings/qr-image'), 'ลบรูปแล้ว'); } }, 'ลบรูป') : null));
+  const ppPane = h('div', { style: 'display:flex;flex-direction:column;gap:12px' },
+    h('div', { class: 'field' }, h('label', { for: 'f_promptpay_id' }, 'เลข PromptPay (เบอร์มือถือ หรือเลข 13 หลัก)'),
+      h('input', { class: 'inp', id: 'f_promptpay_id', name: 'promptpay_id', value: st.promptpay_id, inputmode: 'numeric', maxlength: 20, oninput: (e) => showQR(e.target.value) })),
+    preview);
+  const qrSeg = h('div', { class: 'seg', style: 'max-width:560px' },
+    h('button', { type: 'button', class: S.qrTab === 'image' ? 'on' : '', onclick: () => { S.qrTab = 'image'; render(); } }, 'อัปโหลดรูป QR (เช่น K SHOP)'),
+    h('button', { type: 'button', class: S.qrTab === 'promptpay' ? 'on' : '', onclick: () => { S.qrTab = 'promptpay'; render(); } }, 'สร้างจากเลข PromptPay'));
+  const qrSection = h('div', { class: 'qrsec' },
+    h('div', { class: 'lab' }, 'QR รับเงิน'), qrSeg,
+    S.qrTab === 'image' ? imagePane : ppPane,
+    h('div', { class: 'sub' }, `ตอนนี้ใช้: ${qrMode() === 'image' ? 'รูป QR ที่อัปโหลด' : qrMode() === 'promptpay' ? 'QR PromptPay พร้อมยอดเงิน' : 'ยังไม่ได้ตั้ง'}${S.qrTab !== (st.pay_qr === 'image' ? 'image' : 'promptpay') ? ' · กด "บันทึก" เพื่อเปลี่ยนไปใช้แบบนี้' : ''}`));
+
   const form = h('form', { class: 'panel grow', onsubmit: (e) => {
     e.preventDefault();
-    act(async () => {
-      await api('PUT', '/api/settings', { shop_name: val(form, 'shop_name'), promptpay_id: val(form, 'promptpay_id'), paper: paper.value, bill_footer: val(form, 'bill_footer') });
-    }, 'บันทึกแล้ว');
+    const body = { shop_name: val(form, 'shop_name'), paper: paper.value, bill_footer: val(form, 'bill_footer'), pay_qr: S.qrTab };
+    if (S.qrTab === 'promptpay') body.promptpay_id = val(form, 'promptpay_id');
+    act(() => api('PUT', '/api/settings', body), 'บันทึกแล้ว');
   } },
     h('div', { class: 'ph' }, h('span', {}, 'ข้อมูลร้าน')),
     field('ชื่อร้าน (แสดงบนแถบด้านบนและใบแจ้งยอด)', { name: 'shop_name', value: st.shop_name, maxlength: 60 }),
-    h('div', { class: 'field' }, h('label', { for: 'f_promptpay_id' }, 'เลข PromptPay (เบอร์มือถือ หรือเลข 13 หลัก)'),
-      h('input', { class: 'inp', id: 'f_promptpay_id', name: 'promptpay_id', value: st.promptpay_id, inputmode: 'numeric', maxlength: 20, oninput: (e) => showQR(e.target.value) })),
-    preview,
+    qrSection,
     h('div', { class: 'field' }, h('label', { for: 'f_paper' }, 'ขนาดกระดาษเครื่องพิมพ์'), paper),
     field('ข้อความท้ายใบแจ้งยอด', { name: 'bill_footer', value: st.bill_footer, maxlength: 120, placeholder: 'ขอบคุณที่ใช้บริการ' }),
     h('button', { class: 'btn', type: 'submit', style: 'max-width:240px' }, 'บันทึก'));
-  showQR(st.promptpay_id);
+  if (S.qrTab === 'promptpay') showQR(st.promptpay_id);
   return [h('div', { style: 'display:flex;flex-direction:column;gap:16px;width:100%' }, seg, form)];
 }
 
@@ -169,5 +202,3 @@ function reportView() {
       d.list.slice().reverse().map((b) => [`${fmtDate(b.closed_at)} ${fmtTime(b.closed_at)}`, b.table_name, b.package_name || 'สั่งตามเมนู', b.guests, PAY_TH[b.pay_method] || b.pay_method, money(b.total)])));
   return [h('div', { class: 'stack' }, head, stats, h('div', { class: 'two' }, methods, days || items), days ? items : null, bills)];
 }
-
-render();

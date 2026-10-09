@@ -2,7 +2,8 @@
 // ส่วนที่ 1: ข้อมูลร้าน (เมนู + รูป, แพ็กเกจบุฟเฟต์, โต๊ะ)  ·  ส่วนที่ 2 อยู่ใน service.js
 
 import { all, first, run, HttpError, bad, text, int, baht, toBaht, idList, readJson } from './lib.js';
-import { SERVICE_SCHEMA, serviceRoutes, checkTableDeletable, getSettings } from './service.js';
+import { SERVICE_SCHEMA, serviceRoutes, checkTableDeletable, getSettings, getQrImage } from './service.js';
+import { LINE_SCHEMA, lineRoutes, webhook, publicMenu, publicOrder, publicReserve, inboxCounts } from './line.js';
 
 // ---------- ฐานข้อมูล ----------
 // สร้างตารางให้อัตโนมัติครั้งแรกที่ระบบทำงาน ไม่ต้องไปพิมพ์คำสั่งเอง
@@ -31,7 +32,7 @@ const SCHEMA = [
 ];
 let schemaReady = null;
 function ensureSchema(db) {
-  if (!schemaReady) schemaReady = db.batch([...SCHEMA, ...SERVICE_SCHEMA].map((s) => db.prepare(s))).catch((e) => { schemaReady = null; throw e; });
+  if (!schemaReady) schemaReady = db.batch([...SCHEMA, ...SERVICE_SCHEMA, ...LINE_SCHEMA].map((s) => db.prepare(s))).catch((e) => { schemaReady = null; throw e; });
   return schemaReady;
 }
 
@@ -199,14 +200,21 @@ const routes = [
   ['DELETE', /^\/api\/packages\/(\d+)$/, async (db, req, id) => (await remove(db, 'packages', id), { ok: true })],
 ];
 
-async function handle(req, env) {
+async function handle(req, env, ctx) {
   const url = new URL(req.url);
   const db = env.DB;
   if (!db) throw new HttpError(500, 'ยังไม่ได้เชื่อมฐานข้อมูล D1 (ชื่อ DB)');
   await ensureSchema(db);
 
+  if (url.pathname === '/img/qr' && req.method === 'GET') return getQrImage(db);
   const img = url.pathname.match(/^\/img\/(\d+)$/);
   if (img && req.method === 'GET') return getImage(db, Number(img[1]));
+
+  // ส่วนที่ไม่ต้องใช้ PIN: LINE ส่งข้อความเข้ามา (ตรวจลายเซ็นของ LINE แทน) และหน้าเว็บสั่งอาหาร/จองของลูกค้า
+  if (url.pathname === '/api/line/webhook' && req.method === 'POST') return webhook(req, env, db, ctx);
+  if (url.pathname === '/api/public/menu' && req.method === 'GET') return publicMenu(db, env, url);
+  if (url.pathname === '/api/public/order' && req.method === 'POST') return publicOrder(db, env, req);
+  if (url.pathname === '/api/public/reserve' && req.method === 'POST') return publicReserve(db, env, req);
 
   if (url.pathname === '/api/login' && req.method === 'POST') {
     const b = await readJson(req);
@@ -215,17 +223,21 @@ async function handle(req, env) {
   }
   if (!url.pathname.startsWith('/api/')) throw new HttpError(404, 'ไม่พบหน้านี้');
   await requirePin(req, env, db, req.headers.get('x-pin'));
-  for (const [method, re, fn] of [...routes, ...serviceRoutes]) {
+  for (const [method, re, fn] of [...routes, ...serviceRoutes, ...lineRoutes]) {
     const m = url.pathname.match(re);
-    if (m && req.method === method) return fn(db, req, m[1] ? Number(m[1]) : undefined);
+    if (m && req.method === method) {
+      const out = await fn(db, req, m[1] ? Number(m[1]) : undefined, env);
+      if (url.pathname === '/api/live') out.inbox = await inboxCounts(db); // แจ้งเตือนงานจาก LINE บนผังโต๊ะ
+      return out;
+    }
   }
   throw new HttpError(404, 'ไม่พบ');
 }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     try {
-      const out = await handle(req, env);
+      const out = await handle(req, env, ctx);
       if (out instanceof Response) return out;
       return Response.json(out, { headers: { 'Cache-Control': 'no-store' } });
     } catch (e) {

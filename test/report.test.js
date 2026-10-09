@@ -17,12 +17,31 @@ const thaiToday = () => new Date(Date.now() + 7 * 3600000).toISOString().slice(0
 
 test('ตั้งค่าร้าน: บันทึกและตรวจเลข PromptPay', async () => {
   let s = (await ok('GET', '/api/state')).settings;
-  assert.deepEqual(s, { shop_name: '', promptpay_id: '', paper: '80', bill_footer: '' });
+  assert.deepEqual({ shop_name: s.shop_name, promptpay_id: s.promptpay_id, paper: s.paper, pay_qr: s.pay_qr, qr_image: s.qr_image, takeaway_on: s.takeaway_on }, { shop_name: '', promptpay_id: '', paper: '80', pay_qr: 'promptpay', qr_image: null, takeaway_on: '1' });
   s = await ok('PUT', '/api/settings', { shop_name: 'ร้านหมูกระทะ', promptpay_id: '081-234-5678', paper: '58' });
   assert.equal(s.promptpay_id, '0812345678');
   assert.equal(s.paper, '58');
   assert.equal((await call('PUT', '/api/settings', { promptpay_id: '12345' })).status, 400);
   assert.equal((await ok('GET', '/api/state')).settings.shop_name, 'ร้านหมูกระทะ');
+});
+
+test('อัปโหลดรูป QR รับเงิน (เช่น K SHOP) และเลือกใช้', async () => {
+  const png = Buffer.from('89504e470d0a1a0a0000000d4948445200000001000000010806000000', 'hex');
+  const up = (type, body) => fetch(`${BASE}/api/settings/qr-image`, { method: 'PUT', headers: { 'Content-Type': type, 'x-pin': PIN }, body });
+  assert.equal((await up('application/pdf', png)).status, 400);
+  let s = await (await up('image/png', png)).json();
+  assert.equal(s.qr_image, '/img/qr?v=1');
+  s = await (await up('image/png', png)).json();
+  assert.equal(s.qr_image, '/img/qr?v=2');
+  const img = await fetch(BASE + s.qr_image);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await img.arrayBuffer()), png);
+  s = await ok('PUT', '/api/settings', { pay_qr: 'image' });
+  assert.equal(s.pay_qr, 'image');
+  assert.equal(s.shop_name, 'ร้านหมูกระทะ'); // ค่าอื่นไม่หาย
+  s = await ok('DELETE', '/api/settings/qr-image');
+  assert.equal(s.qr_image, null);
+  assert.equal((await fetch(`${BASE}/img/qr`)).status, 404);
 });
 
 test('รายงานยอดขายวันนี้', async () => {

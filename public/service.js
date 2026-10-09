@@ -42,7 +42,7 @@ async function go(view, extra = {}) {
   try {
     if (view === 'table') { [S.data] = await Promise.all([api('GET', '/api/state'), loadDetail()]); }
     else if (view === 'checkout') await loadDetail();
-    else if (['floor', 'orders'].includes(view)) { await loadLive(); if (view === 'orders') autoPrint.check(); }
+    else if (['floor', 'orders'].includes(view)) { await loadLive(); alertNewInbox(S.live?.inbox); if (view === 'orders') autoPrint.check(); }
   } catch (e) { toast(e.message, true); }
   render();
 }
@@ -65,14 +65,18 @@ setInterval(() => {
 }, 1000);
 let lastPoll = 0;
 setInterval(async () => {
-  if (document.hidden || !S.pin || !['floor', 'orders'].includes(S.view)) return;
+  if (document.hidden || !S.pin || !['floor', 'orders', 'line'].includes(S.view)) return;
   if (S.view === 'floor' && S.open) return; // กำลังกรอกฟอร์มเปิดโต๊ะอยู่ ไม่รบกวน
   const every = S.view === 'orders' ? 10000 : 15000;
   if (Date.now() - lastPoll < every) return;
   lastPoll = Date.now();
   // ถ้ากำลังพิมพ์หมายเหตุหรือตัวเลขอยู่ ไม่วาดหน้าจอใหม่ (กันข้อความหาย)
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
-  try { await loadLive(); autoPrint.check(); if (!typing) render(); } catch {}
+  try {
+    if (S.view === 'line') await Promise.all([loadInbox(), loadLive()]); else await loadLive();
+    autoPrint.check(); alertNewInbox(S.live?.inbox);
+    if (!typing) render();
+  } catch {}
 }, 1000);
 
 // ---------- ผังโต๊ะ ----------
@@ -85,7 +89,7 @@ function floorView() {
   if (needLive()) return [h('div', { class: 'empty' }, 'กำลังโหลด…')];
   const { tables, packages } = S.data;
   const bySession = Object.fromEntries(S.live.sessions.map((s) => [s.table_id, s]));
-  const used = S.live.sessions.length;
+  const used = S.live.sessions.filter((x) => x.table_id).length;
 
   const cards = tables.map((t) => {
     const ses = bySession[t.id];
@@ -102,7 +106,8 @@ function floorView() {
 
   const list = h('section', { class: 'list' },
     h('div', { class: 'ph' }, h('span', {}, 'ผังโต๊ะ'), h('span', { class: 'sub' }, `ลูกค้า ${used}/${tables.length} โต๊ะ`)),
-    tables.length ? h('div', { class: 'tgrid' }, cards) : h('div', { class: 'empty' }, 'ยังไม่มีโต๊ะ ไปเพิ่มที่แท็บ "ตั้งค่าโต๊ะ" ก่อน'));
+    tables.length ? h('div', { class: 'tgrid' }, cards) : h('div', { class: 'empty' }, 'ยังไม่มีโต๊ะ ไปเพิ่มที่แท็บ "ตั้งค่า → โต๊ะ" ก่อน'),
+    takeawayStrip());
   return S.open ? [list, openTablePanel()] : [list];
 }
 
@@ -250,22 +255,22 @@ function checkoutView() {
     adj('ส่วนลด (บาท)', 'discount'),
     h('div', { class: 'tot' }, h('span', {}, 'ยอดชำระ'), totalEl));
 
-  const methods = [['cash', 'เงินสด'], ['promptpay', 'PromptPay'], ['transfer', 'โอน'], ['other', 'อื่น ๆ']];
-  // QR PromptPay พร้อมยอดเงิน (อัปเดตตามส่วนลด/ค่าปรับ)
+  const methods = [['cash', 'เงินสด'], ['promptpay', 'สแกน QR'], ['transfer', 'โอน'], ['other', 'อื่น ๆ']];
+  // QR รับเงิน (รูปที่ร้านอัปโหลด หรือ QR PromptPay พร้อมยอด) อัปเดตตามส่วนลด/ค่าปรับ
   const qrWrap = h('div', {});
   function refreshQR() {
     if (p.method !== 'promptpay') { qrWrap.replaceChildren(); return; }
-    const q = promptPayQR(total(), 6);
-    qrWrap.replaceChildren(q ? h('div', { class: 'qrpay' }, q, h('div', { class: 'qramt' }, money(total())))
-      : h('div', { class: 'warnbox' }, 'ยังไม่ได้ใส่เลข PromptPay ของร้าน ไปตั้งได้ที่แท็บ "ตั้งค่า"'));
+    const q = paymentQR(total(), 6);
+    qrWrap.replaceChildren(q ? h('div', { class: 'qrpay' }, q, h('div', { class: 'qramt' }, money(total())), h('div', { class: 'sub', style: 'text-align:center' }, qrHint(total())))
+      : h('div', { class: 'warnbox' }, 'ยังไม่ได้ตั้ง QR รับเงินของร้าน ไปตั้งได้ที่แท็บ "ตั้งค่า"'));
   }
   refreshQR();
   const right = h('div', { class: 'panel' },
     h('div', { class: 'ph' }, h('span', {}, 'ชำระเงิน')),
     h('div', { class: 'opts' }, methods.map(([k, l]) => h('button', { type: 'button', class: 'opt' + (p.method === k ? ' sel' : ''), 'aria-pressed': p.method === k ? 'true' : 'false', onclick: () => { p.method = k; render(); } }, l))),
     qrWrap,
-    h('div', { class: 'sub' }, p.method === 'cash' ? 'รับเงินสดแล้วกดยืนยัน' : 'ตรวจว่าเงินเข้าบัญชีร้านแล้ว จึงกดยืนยัน'),
-    h('button', { class: 'btn ghost', onclick: () => printNodes(billDoc(d, p, total(), p.method === 'promptpay' && !!settings().promptpay_id)) }, 'พิมพ์ใบแจ้งยอด'),
+    h('div', { class: 'sub' }, p.method === 'cash' ? 'รับเงินสดแล้วกดยืนยัน' : 'ตรวจว่าเงินเข้าบัญชีร้านแล้ว (เช่น ในแอป K SHOP) จึงกดยืนยัน'),
+    h('button', { class: 'btn ghost', onclick: () => printNodes(billDoc(d, p, total(), p.method === 'promptpay' && hasPayQR())) }, 'พิมพ์ใบแจ้งยอด'),
     h('button', { class: 'btn big', onclick: () => {
       if (!confirm(`ยืนยันรับเงิน ${money(total())} และปิด${ses.table_name}?`)) return;
       doThen(async () => {
