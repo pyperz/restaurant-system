@@ -81,12 +81,13 @@ function bar() {
   const current = ['table', 'checkout'].includes(S.view) ? 'floor' : S.view;
   const tab = (key, label) => h('button', { class: 'tab' + (current === key ? ' on' : ''), 'aria-current': current === key ? 'page' : null, onclick: () => {
     S.sel = null; S.open = null;
+    if (key === 'report') S.rep.data = null;
     if (key === 'floor' || key === 'orders') { go(key); return; }
     S.view = key; store.set('view', key); render();
   } }, label);
   return h('header', { class: 'bar' },
-    h('nav', { class: 'tabs', 'aria-label': 'เมนูหลัก' }, h('span', { class: 'shopn' }, 'ร้านของเรา'),
-      tab('floor', 'ผังโต๊ะ'), tab('orders', 'ออเดอร์'), tab('menu', 'เมนู'), tab('packages', 'แพ็กเกจ'), tab('tables', 'ตั้งค่าโต๊ะ')),
+    h('nav', { class: 'tabs', 'aria-label': 'เมนูหลัก' }, h('span', { class: 'shopn' }, S.data?.settings?.shop_name || 'ร้านของเรา'),
+      tab('floor', 'ผังโต๊ะ'), tab('orders', 'ออเดอร์'), tab('menu', 'เมนู'), tab('packages', 'แพ็กเกจ'), tab('report', 'รายงาน'), tab('settings', 'ตั้งค่า')),
     h('button', { class: 'logout', onclick: () => { S.pin = null; store.set('pin', null); render(); } }, 'ออกจากระบบ'));
 }
 
@@ -248,8 +249,9 @@ function render() {
   const app = document.getElementById('app');
   if (!S.pin) { app.replaceChildren(loginView()); return; }
   if (!S.data) { app.replaceChildren(h('div', { class: 'login' }, 'กำลังโหลด…')); load().catch((e) => toast(e.message, true)); return; }
-  const views = { menu: menuView, packages: packagesView, tables: tablesView, floor: floorView, orders: ordersView, table: tableView, checkout: checkoutView };
+  if (S.view === 'tables') { S.view = 'settings'; S.setTab = 'tables'; } // ลิงก์เก่า
+  const views = { menu: menuView, packages: packagesView, floor: floorView, orders: ordersView, table: tableView, checkout: checkoutView, report: reportView, settings: settingsView };
   const view = views[S.view] || floorView;
-  app.replaceChildren(bar(), h('main', { class: 'wrap' + (S.view === 'orders' ? ' full' : '') }, view()));
+  app.replaceChildren(bar(), h('main', { class: 'wrap' + (['orders', 'report', 'settings'].includes(S.view) ? ' full' : '') }, view()));
 }
-// เริ่มทำงานอยู่ท้าย service.js (ต้องโหลดไฟล์นั้นก่อน)
+// เริ่มทำงานอยู่ท้าย extra.js (ต้องโหลดไฟล์อื่นก่อน)

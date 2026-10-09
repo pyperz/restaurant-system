@@ -42,7 +42,7 @@ async function go(view, extra = {}) {
   try {
     if (view === 'table') { [S.data] = await Promise.all([api('GET', '/api/state'), loadDetail()]); }
     else if (view === 'checkout') await loadDetail();
-    else if (['floor', 'orders'].includes(view)) await loadLive();
+    else if (['floor', 'orders'].includes(view)) { await loadLive(); if (view === 'orders') autoPrint.check(); }
   } catch (e) { toast(e.message, true); }
   render();
 }
@@ -63,11 +63,17 @@ setInterval(() => {
     el.classList.remove('ok', 'warn', 'over'); el.classList.add(t.cls);
   });
 }, 1000);
+let lastPoll = 0;
 setInterval(async () => {
   if (document.hidden || !S.pin || !['floor', 'orders'].includes(S.view)) return;
   if (S.view === 'floor' && S.open) return; // กำลังกรอกฟอร์มเปิดโต๊ะอยู่ ไม่รบกวน
-  try { await loadLive(); render(); } catch {}
-}, 15000);
+  const every = S.view === 'orders' ? 10000 : 15000;
+  if (Date.now() - lastPoll < every) return;
+  lastPoll = Date.now();
+  // ถ้ากำลังพิมพ์หมายเหตุหรือตัวเลขอยู่ ไม่วาดหน้าจอใหม่ (กันข้อความหาย)
+  const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+  try { await loadLive(); autoPrint.check(); if (!typing) render(); } catch {}
+}, 1000);
 
 // ---------- ผังโต๊ะ ----------
 function needLive(view) {
@@ -229,7 +235,7 @@ function checkoutView() {
   }));
   const adj = (label, key) => h('div', { class: 'adj' }, h('label', { for: 'f_' + key }, label),
     h('input', { class: 'inp', id: 'f_' + key, type: 'number', inputmode: 'decimal', min: 0, step: '1', value: p[key], placeholder: '0', style: 'width:140px;text-align:right',
-      oninput: (e) => { p[key] = e.target.value; totalEl.textContent = money(total()); } }));
+      oninput: (e) => { p[key] = e.target.value; totalEl.textContent = money(total()); refreshQR(); } }));
 
   const left = h('div', { class: 'panel grow' },
     h('div', { class: 'ph' }, h('span', {}, h('button', { class: 'back', 'aria-label': 'กลับไปหน้าสั่งอาหาร', onclick: () => go('table') }, '‹'), `บิล ${ses.table_name}`),
@@ -245,10 +251,21 @@ function checkoutView() {
     h('div', { class: 'tot' }, h('span', {}, 'ยอดชำระ'), totalEl));
 
   const methods = [['cash', 'เงินสด'], ['promptpay', 'PromptPay'], ['transfer', 'โอน'], ['other', 'อื่น ๆ']];
+  // QR PromptPay พร้อมยอดเงิน (อัปเดตตามส่วนลด/ค่าปรับ)
+  const qrWrap = h('div', {});
+  function refreshQR() {
+    if (p.method !== 'promptpay') { qrWrap.replaceChildren(); return; }
+    const q = promptPayQR(total(), 6);
+    qrWrap.replaceChildren(q ? h('div', { class: 'qrpay' }, q, h('div', { class: 'qramt' }, money(total())))
+      : h('div', { class: 'warnbox' }, 'ยังไม่ได้ใส่เลข PromptPay ของร้าน ไปตั้งได้ที่แท็บ "ตั้งค่า"'));
+  }
+  refreshQR();
   const right = h('div', { class: 'panel' },
     h('div', { class: 'ph' }, h('span', {}, 'ชำระเงิน')),
     h('div', { class: 'opts' }, methods.map(([k, l]) => h('button', { type: 'button', class: 'opt' + (p.method === k ? ' sel' : ''), 'aria-pressed': p.method === k ? 'true' : 'false', onclick: () => { p.method = k; render(); } }, l))),
+    qrWrap,
     h('div', { class: 'sub' }, p.method === 'cash' ? 'รับเงินสดแล้วกดยืนยัน' : 'ตรวจว่าเงินเข้าบัญชีร้านแล้ว จึงกดยืนยัน'),
+    h('button', { class: 'btn ghost', onclick: () => printNodes(billDoc(d, p, total(), p.method === 'promptpay' && !!settings().promptpay_id)) }, 'พิมพ์ใบแจ้งยอด'),
     h('button', { class: 'btn big', onclick: () => {
       if (!confirm(`ยืนยันรับเงิน ${money(total())} และปิด${ses.table_name}?`)) return;
       doThen(async () => {
@@ -271,12 +288,16 @@ function ordersView() {
     o.note ? h('div', { class: 'note' }, o.note) : null,
     h('div', { class: 'row2' },
       h('button', { class: 'btn ' + cls, onclick: () => set(o, next) }, label),
+      h('button', { class: 'btn ghost narrow', 'aria-label': `พิมพ์ใบสั่ง ${o.table_name} รอบที่ ${o.round_no}`, onclick: () => printOrder(o) }, 'พิมพ์'),
       o.status !== 'ready' ? h('button', { class: 'btn ghost narrow', onclick: () => { if (confirm(`ยกเลิกออเดอร์ ${o.table_name} รอบที่ ${o.round_no}?`)) set(o, 'cancelled', 'ยกเลิกออเดอร์แล้ว'); } }, 'ยกเลิก') : null));
-  return [h('div', { class: 'cols' }, cols.map(([st, title, next, label, cls]) => {
+  const ap = autoPrint.on();
+  const tools = h('div', { class: 'ktools' },
+    h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: ap, onchange: () => autoPrint.toggle() }), ' พิมพ์ออเดอร์ใหม่อัตโนมัติบนเครื่องนี้'),
+    h('span', { class: 'sub' }, ap ? 'เปิดหน้านี้ค้างไว้ ออเดอร์ใหม่จะสั่งพิมพ์เอง (เช็กทุก 10 วินาที)' : 'เหมาะกับเครื่องที่ต่อเครื่องพิมพ์ในครัว'));
+  return [tools, h('div', { class: 'cols' }, cols.map(([st, title, next, label, cls]) => {
     const list = S.live.orders.filter((o) => o.status === st);
     return h('section', { class: 'col' }, h('div', { class: 'ch' }, h('span', {}, title), h('span', { class: 'cnt' }, list.length)),
       list.length ? list.map((o) => card(o, next, label, cls)) : h('div', { class: 'sub', style: 'text-align:center;padding:20px' }, 'ไม่มี'));
   }))];
 }
 
-render();

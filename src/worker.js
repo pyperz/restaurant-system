@@ -2,7 +2,7 @@
 // ส่วนที่ 1: ข้อมูลร้าน (เมนู + รูป, แพ็กเกจบุฟเฟต์, โต๊ะ)  ·  ส่วนที่ 2 อยู่ใน service.js
 
 import { all, first, run, HttpError, bad, text, int, baht, toBaht, idList, readJson } from './lib.js';
-import { SERVICE_SCHEMA, serviceRoutes, checkTableDeletable } from './service.js';
+import { SERVICE_SCHEMA, serviceRoutes, checkTableDeletable, getSettings } from './service.js';
 
 // ---------- ฐานข้อมูล ----------
 // สร้างตารางให้อัตโนมัติครั้งแรกที่ระบบทำงาน ไม่ต้องไปพิมพ์คำสั่งเอง
@@ -37,13 +37,15 @@ function ensureSchema(db) {
 
 // ---------- อ่านข้อมูลทั้งหมด ----------
 async function getState(db) {
-  const [tables, menu, links, packages] = await Promise.all([
+  const [settings, tables, menu, links, packages] = await Promise.all([
+    getSettings(db),
     all(db, 'SELECT id, name, seats, zone FROM dining_tables ORDER BY sort, id'),
     all(db, 'SELECT * FROM menu_items ORDER BY category, sort, id'),
     all(db, 'SELECT package_id, item_id FROM package_items'),
     all(db, 'SELECT * FROM packages ORDER BY sort, id'),
   ]);
   return {
+    settings,
     tables,
     menu: menu.map((m) => ({
       id: m.id, name: m.name, category: m.category, price: toBaht(m.price_satang), available: !!m.available,

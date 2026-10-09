@@ -27,7 +27,8 @@ button:disabled{opacity:.45;cursor:default}
 .btn.ghost{background:#fff;color:var(--ink);border:2px solid var(--line)}
 .btn.danger{background:#fff;color:var(--bad);border:2px solid #E7B8B3}
 .row2{display:flex;gap:10px}
-.row2>*{flex:1}
+.row2>*{flex:1;min-width:0}
+.inp[type=date]{min-width:0}
 
 .field{display:flex;flex-direction:column;gap:6px}
 .field label{font-size:16px;font-weight:600}
@@ -164,4 +165,53 @@ button:disabled{opacity:.45;cursor:default}
   .igrid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .tgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .tc .tm{font-size:24px}
+}
+
+/* ---------- ส่วนที่ 3: ตั้งค่า รายงาน QR การพิมพ์ ---------- */
+.stack{display:flex;flex-direction:column;gap:16px;width:100%}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.stat{background:#fff;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:4px}
+.sv{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+.tbl{width:100%;border-collapse:collapse;font-size:16px}
+.tbl th{font-size:14px;color:var(--muted);font-weight:600;text-align:left;padding:8px 6px;border-bottom:2px solid var(--well)}
+.tbl td{padding:10px 6px;border-bottom:1px solid var(--well)}
+.tbl .num{text-align:right;font-variant-numeric:tabular-nums}
+.stack>*,.two>*,.panel.grow{min-width:0;max-width:100%}
+.panel.grow:has(.tbl){overflow-x:auto}
+select.inp{appearance:auto}
+.qrbox svg{display:block;width:100%;height:auto;max-width:260px;margin:0 auto}
+.qrpay{border:2px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:4px}
+.qramt{font-size:24px;font-weight:700}
+.qrprev{display:flex;gap:16px;align-items:center;max-width:520px}
+.qrprev .qrbox{width:160px;flex:none}
+.ktools{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.switch{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:600;background:#fff;border-radius:12px;padding:10px 16px;min-height:48px}
+.switch input{width:24px;height:24px}
+#print{display:none}
+
+@media (max-width:820px){
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .two{grid-template-columns:1fr}
+  .qrprev{flex-direction:column;align-items:flex-start}
+}
+
+/* ใบพิมพ์ (เครื่องพิมพ์ความร้อน 58/80 มม.) */
+@media print{
+  body{background:#fff}
+  body>*:not(#print){display:none!important}
+  #print{display:block;color:#000;font-size:14px}
+  #print.paper80{width:72mm}
+  #print.paper58{width:48mm;font-size:12px}
+  .tk{padding:2mm 0;break-after:page}
+  .tk:last-child{break-after:auto}
+  .tk hr{border:0;border-top:1px dashed #000;margin:2mm 0}
+  .tk-big{font-size:2em;font-weight:700;text-align:center}
+  .tk-mid{font-size:1.4em;font-weight:700}
+  .tk-sm{font-size:.85em}
+  .tk-line{font-size:1.35em;margin:1mm 0}
+  .tk-note{font-size:1.05em;padding-left:4mm}
+  .tk-row{display:flex;justify-content:space-between;gap:2mm}
+  .tk .qrbox svg{max-width:40mm}
+  .tk-cut{height:6mm}
 }

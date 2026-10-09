@@ -33,6 +33,8 @@ export const SERVICE_SCHEMA = [
     in_package INTEGER NOT NULL, unit_satang INTEGER NOT NULL DEFAULT 0,
     note TEXT NOT NULL DEFAULT '')`,
   `CREATE INDEX IF NOT EXISTS order_items_order ON order_items(order_id)`,
+  `CREATE INDEX IF NOT EXISTS sessions_closed ON sessions(closed_at)`,
+  `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 ];
 
 const ACTIVE = ['new', 'cooking', 'ready'];
@@ -207,11 +209,83 @@ async function cancelSession(db, id) {
   return { ok: true };
 }
 
+// ---------- ตั้งค่าร้าน ----------
+const SETTINGS = {
+  shop_name: (v) => text(v, 'ชื่อร้าน', { required: false, max: 60 }),
+  promptpay_id: (v) => {
+    const d = String(v ?? '').replace(/\D/g, '');
+    if (d && ![10, 13, 15].includes(d.length)) throw bad('เลข PromptPay ต้องเป็นเบอร์มือถือ 10 หลัก หรือเลข 13 หลัก');
+    return d;
+  },
+  paper: (v) => (['58', '80'].includes(String(v)) ? String(v) : '80'),
+  bill_footer: (v) => text(v, 'ข้อความท้ายบิล', { required: false, max: 120 }),
+};
+export async function getSettings(db) {
+  const rows = await all(db, 'SELECT key, value FROM settings');
+  const out = { shop_name: '', promptpay_id: '', paper: '80', bill_footer: '' };
+  for (const r of rows) if (r.key in SETTINGS) out[r.key] = r.value;
+  return out;
+}
+async function saveSettings(db, b) {
+  const ins = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+  const stmts = Object.entries(SETTINGS).filter(([k]) => k in b).map(([k, fn]) => ins.bind(k, fn(b[k])));
+  if (stmts.length) await db.batch(stmts);
+  return getSettings(db);
+}
+
+// ---------- รายงานยอดขาย (ใช้วันตามเวลาไทย) ----------
+const TZ = 7 * 3600000;
+const thaiDate = (ms) => new Date(ms + TZ).toISOString().slice(0, 10);
+function dayStart(str, field) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(str || ''));
+  const ms = m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) - TZ : NaN;
+  if (!m || thaiDate(ms) !== m[0]) throw bad(`${field}ไม่ถูกต้อง`);
+  return ms;
+}
+async function report(db, url) {
+  const today = thaiDate(Date.now());
+  const from = dayStart(url.searchParams.get('from') || today, 'วันที่เริ่ม');
+  const to = dayStart(url.searchParams.get('to') || url.searchParams.get('from') || today, 'วันที่สิ้นสุด') + 86400000;
+  if (to <= from) throw bad('ช่วงวันที่ไม่ถูกต้อง');
+  if (to - from > 93 * 86400000) throw bad('ดูรายงานได้ครั้งละไม่เกิน 3 เดือน');
+
+  const bills = await all(db, `SELECT id, table_name, package_name, adults, children, adult_satang, child_satang,
+    opened_at, closed_at, discount_satang, penalty_satang, total_satang, pay_method
+    FROM sessions WHERE status = 'closed' AND closed_at >= ? AND closed_at < ? ORDER BY closed_at`, from, to);
+  const items = await all(db, `SELECT i.name, i.in_package, SUM(i.qty) AS qty, SUM(i.qty * i.unit_satang) AS amount
+    FROM order_items i JOIN orders o ON o.id = i.order_id JOIN sessions s ON s.id = o.session_id
+    WHERE s.status = 'closed' AND s.closed_at >= ? AND s.closed_at < ? AND o.status != 'cancelled'
+    GROUP BY i.name, i.in_package ORDER BY qty DESC LIMIT 30`, from, to);
+
+  const sum = (f) => bills.reduce((a, b) => a + f(b), 0);
+  const buffet = sum((b) => b.adults * b.adult_satang + b.children * b.child_satang);
+  const byMethod = {}, byDay = {};
+  for (const b of bills) {
+    byMethod[b.pay_method] = (byMethod[b.pay_method] || 0) + b.total_satang;
+    const d = thaiDate(b.closed_at);
+    byDay[d] = byDay[d] || { date: d, bills: 0, total: 0 };
+    byDay[d].bills++; byDay[d].total += b.total_satang;
+  }
+  return {
+    from: thaiDate(from), to: thaiDate(to - 1),
+    total: toBaht(sum((b) => b.total_satang)), bills: bills.length, guests: sum((b) => b.adults + b.children),
+    buffet: toBaht(buffet), discount: toBaht(sum((b) => b.discount_satang)), penalty: toBaht(sum((b) => b.penalty_satang)),
+    extras: toBaht(items.filter((i) => !i.in_package).reduce((a, i) => a + i.amount, 0)),
+    by_method: Object.fromEntries(Object.entries(byMethod).map(([k, v]) => [k, toBaht(v)])),
+    by_day: Object.values(byDay).map((d) => ({ ...d, total: toBaht(d.total) })),
+    items: items.map((i) => ({ name: i.name, in_package: !!i.in_package, qty: i.qty, amount: toBaht(i.amount) })),
+    list: bills.map((b) => ({ id: b.id, table_name: b.table_name, package_name: b.package_name, guests: b.adults + b.children,
+      opened_at: b.opened_at, closed_at: b.closed_at, total: toBaht(b.total_satang), pay_method: b.pay_method })),
+  };
+}
+
 export async function checkTableDeletable(db, id) {
   if (await first(db, "SELECT id FROM sessions WHERE table_id = ? AND status = 'open'", id)) throw bad('โต๊ะนี้มีลูกค้าอยู่ ปิดบิลก่อนแล้วค่อยลบ');
 }
 
 export const serviceRoutes = [
+  ['PUT', /^\/api\/settings$/, async (db, req) => saveSettings(db, await readJson(req))],
+  ['GET', /^\/api\/report$/, (db, req) => report(db, new URL(req.url))],
   ['GET', /^\/api\/live$/, (db) => live(db)],
   ['POST', /^\/api\/sessions$/, async (db, req) => openSession(db, await readJson(req))],
   ['GET', /^\/api\/sessions\/(\d+)$/, (db, req, id) => sessionDetail(db, id)],
