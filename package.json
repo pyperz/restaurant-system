@@ -1,0 +1,14 @@
+{
+  "name": "restaurant-system",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ระบบร้านอาหาร: ตั้งค่าเมนู แพ็กเกจบุฟเฟต์ และโต๊ะ (ส่วนที่ 1)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}
