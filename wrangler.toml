@@ -1,0 +1,17 @@
+# ตั้งค่าสำหรับ Cloudflare Workers
+# ชื่อนี้ต้องตรงกับชื่อ Worker ในหน้า Cloudflare
+name = "restaurant-system"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+
+# หน้าจอ iPad (ไฟล์ในโฟลเดอร์ public)
+[assets]
+directory = "./public"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/img/*"]
+
+# ฐานข้อมูล D1 — Cloudflare จะสร้างให้อัตโนมัติตอน deploy ครั้งแรก
+# ถ้าสร้างเองในหน้า Cloudflare แล้ว ให้ใส่บรรทัด database_id = "..." ใต้ database_name (ดู README)
+[[d1_databases]]
+binding = "DB"
+database_name = "restaurant-db"

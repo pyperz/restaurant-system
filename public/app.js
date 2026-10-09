@@ -22,6 +22,19 @@ function h(tag, attrs = {}, ...kids) {
 }
 const money = (n) => (n == null ? '—' : '฿' + Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 }));
 
+// ย่อรูปบน iPad ก่อนส่ง (ด้านยาวสุด 800px, JPG) รูปจะเล็กลงมาก โหลดเร็ว
+async function shrinkImage(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => fail(new Error('เปิดไฟล์รูปนี้ไม่ได้ ลองเลือกรูปอื่น')); i.src = url; });
+    const scale = Math.min(1, 800 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+    const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((ok) => c.toBlob(ok, 'image/jpeg', 0.82));
+  } finally { URL.revokeObjectURL(url); }
+}
+
 let toastTimer;
 function toast(msg, err) {
   const t = document.getElementById('toast');
@@ -30,9 +43,10 @@ function toast(msg, err) {
 }
 
 async function api(method, url, body) {
+  const isBlob = body instanceof Blob;
   const res = await fetch(url, {
-    method, headers: { 'Content-Type': 'application/json', 'x-pin': S.pin || '' },
-    body: body ? JSON.stringify(body) : undefined,
+    method, headers: { 'Content-Type': isBlob ? body.type : 'application/json', 'x-pin': S.pin || '' },
+    body: isBlob ? body : body ? JSON.stringify(body) : undefined,
   });
   const out = await res.json().catch(() => ({}));
   if (res.status === 401 && url !== '/api/login') { S.pin = null; store.set('pin', null); render(); }
@@ -92,8 +106,8 @@ function menuView() {
   const inPkgs = (id) => packages.filter((p) => p.item_ids.includes(id));
 
   const rows = menu.map((m) => h('div', { class: 'mrow' + (m.id === S.sel ? ' sel' : '') },
-    h('button', { class: 'mn', style: 'border:0;background:none;text-align:left;padding:8px 0;color:inherit', onclick: () => { S.sel = m.id; render(); } }, m.name),
-    h('span', { class: 'mc' }, m.category || '—'),
+    m.image ? h('img', { class: 'thumb', src: m.image, alt: '', loading: 'lazy' }) : h('span', { class: 'thumb none', 'aria-hidden': 'true' }, 'ไม่มีรูป'),
+    h('button', { class: 'mn', style: 'border:0;background:none;text-align:left;padding:8px 0;color:inherit', onclick: () => { S.sel = m.id; render(); } }, m.name, m.category ? h('span', { class: 'mc' }, m.category) : null),
     h('span', { class: 'mp' }, money(m.price)),
     h('span', { class: 'pk' }, inPkgs(m.id).length ? inPkgs(m.id).map((p) => h('span', { class: 'tag' }, pkgName[p.id])) : h('span', { class: 'sub' }, 'นอกแพ็กเกจ')),
     h('button', { class: 'mb ' + (m.available ? 'ok' : 'out'), 'aria-label': `${m.name}: ${m.available ? 'พร้อมขาย' : 'หมด'} แตะเพื่อเปลี่ยน`,
@@ -102,18 +116,38 @@ function menuView() {
 
   const list = h('section', { class: 'list' },
     h('div', { class: 'ph' }, h('span', {}, 'จัดการเมนู'), h('button', { class: 'btn blue', onclick: () => { S.sel = 'new'; render(); } }, '+ เพิ่มเมนู')),
-    menu.length ? h('div', { class: 'colhead' }, h('span', { style: 'flex:1' }, 'ชื่อเมนู'), h('span', { style: 'width:130px' }, 'หมวด'),
+    menu.length ? h('div', { class: 'colhead' }, h('span', { style: 'width:56px' }), h('span', { style: 'flex:1' }, 'ชื่อเมนู / หมวด'),
       h('span', { style: 'width:80px;text-align:right' }, 'ราคาสั่งเพิ่ม'), h('span', { style: 'width:170px' }, 'อยู่ในแพ็กเกจ'), h('span', { style: 'width:120px' })) : null,
     rows.length ? rows : h('div', { class: 'empty' }, 'ยังไม่มีเมนู กด "+ เพิ่มเมนู" เพื่อเริ่ม'));
 
   if (!item) return [list];
   const chips = h('div', { class: 'chips' }, packages.length ? packages.map((p) => chip(p.name, p.id, item.id && p.item_ids.includes(item.id))) : h('span', { class: 'hint' }, 'ยังไม่มีแพ็กเกจ'));
+  // รูปเมนู: เลือกจากคลังรูปหรือถ่ายใหม่ได้บน iPad
+  let photo = null, dropPhoto = false;
+  const preview = h('div', { class: 'photo' }, item.image ? h('img', { src: item.image, alt: 'รูปเมนู' }) : h('span', {}, 'ยังไม่มีรูป'));
+  const removeBtn = h('button', { type: 'button', class: 'btn ghost', hidden: !item.image, onclick: () => {
+    photo = null; dropPhoto = true; preview.replaceChildren(h('span', {}, 'ยังไม่มีรูป')); removeBtn.hidden = true;
+  } }, 'ลบรูป');
+  const picker = h('input', { type: 'file', accept: 'image/*', id: 'f_photo', class: 'sr', onchange: async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      photo = await shrinkImage(f); dropPhoto = false;
+      preview.replaceChildren(h('img', { src: URL.createObjectURL(photo), alt: 'รูปเมนูที่เลือก' })); removeBtn.hidden = false;
+    } catch (err) { toast(err.message, true); }
+  } });
   const form = h('form', { class: 'panel', onsubmit: (e) => {
     e.preventDefault();
     const body = { name: val(form, 'name'), category: val(form, 'category'), price: val(form, 'price'), available: item.available !== false, package_ids: chipsOf(chips) };
-    act(async () => { const r = await api(item.id ? 'PUT' : 'POST', item.id ? `/api/menu/${item.id}` : '/api/menu', body); S.sel = r.id; }, 'บันทึกแล้ว');
+    act(async () => {
+      const r = await api(item.id ? 'PUT' : 'POST', item.id ? `/api/menu/${item.id}` : '/api/menu', body); S.sel = r.id;
+      if (photo) await api('PUT', `/api/menu/${r.id}/image`, photo);
+      else if (dropPhoto && item.image) await api('DELETE', `/api/menu/${r.id}/image`);
+    }, 'บันทึกแล้ว');
   } },
     h('div', { class: 'ph' }, h('span', {}, item.id ? 'แก้ไขเมนู' : 'เมนูใหม่')),
+    preview,
+    h('div', { class: 'row2' }, h('label', { for: 'f_photo', class: 'btn blue filebtn' }, item.image ? 'เปลี่ยนรูป' : 'เลือกรูป / ถ่ายรูป'), removeBtn), picker,
     field('ชื่อเมนู', { name: 'name', value: item.name || '', required: true, maxlength: 80 }),
     field('หมวด', { name: 'category', value: item.category || '', maxlength: 40, list: 'cats', placeholder: 'เช่น เนื้อสัตว์ เครื่องดื่ม' }),
     h('datalist', { id: 'cats' }, [...new Set(menu.map((m) => m.category).filter(Boolean))].map((c) => h('option', { value: c }))),
