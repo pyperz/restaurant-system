@@ -1,5 +1,8 @@
 // ระบบร้านอาหาร — เซิร์ฟเวอร์บน Cloudflare Workers + ฐานข้อมูล D1
-// ส่วนที่ 1: ข้อมูลร้าน (เมนู + รูป, แพ็กเกจบุฟเฟต์, โต๊ะ)
+// ส่วนที่ 1: ข้อมูลร้าน (เมนู + รูป, แพ็กเกจบุฟเฟต์, โต๊ะ)  ·  ส่วนที่ 2 อยู่ใน service.js
+
+import { all, first, run, HttpError, bad, text, int, baht, toBaht, idList, readJson } from './lib.js';
+import { SERVICE_SCHEMA, serviceRoutes, checkTableDeletable } from './service.js';
 
 // ---------- ฐานข้อมูล ----------
 // สร้างตารางให้อัตโนมัติครั้งแรกที่ระบบทำงาน ไม่ต้องไปพิมพ์คำสั่งเอง
@@ -28,39 +31,9 @@ const SCHEMA = [
 ];
 let schemaReady = null;
 function ensureSchema(db) {
-  if (!schemaReady) schemaReady = db.batch(SCHEMA.map((s) => db.prepare(s))).catch((e) => { schemaReady = null; throw e; });
+  if (!schemaReady) schemaReady = db.batch([...SCHEMA, ...SERVICE_SCHEMA].map((s) => db.prepare(s))).catch((e) => { schemaReady = null; throw e; });
   return schemaReady;
 }
-
-const all = async (db, sql, ...args) => (await db.prepare(sql).bind(...args).all()).results;
-const first = (db, sql, ...args) => db.prepare(sql).bind(...args).first();
-const run = (db, sql, ...args) => db.prepare(sql).bind(...args).run();
-
-// ---------- ตรวจข้อมูล ----------
-class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
-const bad = (msg) => new HttpError(400, msg);
-
-function text(v, field, { required = true, max = 100 } = {}) {
-  const s = typeof v === 'string' ? v.trim() : '';
-  if (required && !s) throw bad(`กรุณากรอก${field}`);
-  if (s.length > max) throw bad(`${field}ยาวเกินไป`);
-  return s;
-}
-function int(v, field, { min = 0, max = 1e6, fallback } = {}) {
-  if ((v === undefined || v === null || v === '') && fallback !== undefined) return fallback;
-  const n = Number(v);
-  if (!Number.isInteger(n) || n < min || n > max) throw bad(`${field}ไม่ถูกต้อง`);
-  return n;
-}
-// รับราคาเป็นบาท (เช่น 59.5) เก็บเป็นสตางค์ เพื่อไม่ให้ทศนิยมเพี้ยน
-function baht(v, field, { optional = false } = {}) {
-  if (optional && (v === undefined || v === null || v === '')) return null;
-  const n = Number(v);
-  if (!Number.isFinite(n) || n < 0 || n > 1e6) throw bad(`${field}ไม่ถูกต้อง`);
-  return Math.round(n * 100);
-}
-const toBaht = (s) => (s === null || s === undefined ? null : s / 100);
-const idList = (arr, field) => (Array.isArray(arr) ? [...new Set(arr.map((x) => int(x, field, { min: 1, max: 1e9 })))] : null);
 
 // ---------- อ่านข้อมูลทั้งหมด ----------
 async function getState(db) {
@@ -195,30 +168,25 @@ async function pinOk(env, pin) {
   for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
   return diff === 0;
 }
-async function checkLock(db, ip) {
-  const f = await first(db, 'SELECT until FROM login_fails WHERE ip=?', ip);
-  if (f && f.until > Date.now()) throw new HttpError(429, 'ใส่รหัสผิดหลายครั้ง กรุณารอ 5 นาที');
-}
-async function noteFail(db, ip) {
-  const f = (await first(db, 'SELECT n FROM login_fails WHERE ip=?', ip)) || { n: 0 };
-  const n = f.n + 1;
-  await run(db, 'INSERT OR REPLACE INTO login_fails (ip, n, until) VALUES (?,?,?)', ip, n >= 5 ? 0 : n, n >= 5 ? Date.now() + 5 * 60 * 1000 : 0);
-}
 async function requirePin(req, env, db, pin) {
   const ip = req.headers.get('cf-connecting-ip') || 'local';
-  await checkLock(db, ip);
-  if (!(await pinOk(env, pin))) { await noteFail(db, ip); throw new HttpError(401, req.url.endsWith('/api/login') ? 'รหัสไม่ถูกต้อง' : 'กรุณาเข้าสู่ระบบ'); }
-  await run(db, 'DELETE FROM login_fails WHERE ip=?', ip);
+  const f = await first(db, 'SELECT n, until FROM login_fails WHERE ip=?', ip);
+  if (f && f.until > Date.now()) throw new HttpError(429, 'ใส่รหัสผิดหลายครั้ง กรุณารอ 5 นาที');
+  if (!(await pinOk(env, pin))) {
+    const n = (f?.n || 0) + 1;
+    await run(db, 'INSERT OR REPLACE INTO login_fails (ip, n, until) VALUES (?,?,?)', ip, n >= 5 ? 0 : n, n >= 5 ? Date.now() + 5 * 60 * 1000 : 0);
+    throw new HttpError(401, req.url.endsWith('/api/login') ? 'รหัสไม่ถูกต้อง' : 'กรุณาเข้าสู่ระบบ');
+  }
+  if (f) await run(db, 'DELETE FROM login_fails WHERE ip=?', ip); // เขียนฐานข้อมูลเฉพาะตอนจำเป็น (ประหยัดโควตา)
 }
 
 // ---------- เส้นทาง API ----------
-async function readJson(req) { try { return await req.json(); } catch { throw bad('รูปแบบข้อมูลไม่ถูกต้อง'); } }
 const routes = [
   ['GET', /^\/api\/state$/, (db) => getState(db)],
   ['POST', /^\/api\/tables$/, async (db, req) => ({ id: await saveTable(db, await readJson(req)) })],
   ['POST', /^\/api\/tables\/bulk$/, async (db, req) => (await bulkTables(db, await readJson(req)), { ok: true })],
   ['PUT', /^\/api\/tables\/(\d+)$/, async (db, req, id) => ({ id: await saveTable(db, await readJson(req), id) })],
-  ['DELETE', /^\/api\/tables\/(\d+)$/, async (db, req, id) => (await remove(db, 'dining_tables', id), { ok: true })],
+  ['DELETE', /^\/api\/tables\/(\d+)$/, async (db, req, id) => (await checkTableDeletable(db, id), await remove(db, 'dining_tables', id), { ok: true })],
   ['POST', /^\/api\/menu$/, async (db, req) => ({ id: await saveMenuItem(db, await readJson(req)) })],
   ['PUT', /^\/api\/menu\/(\d+)$/, async (db, req, id) => ({ id: await saveMenuItem(db, await readJson(req), id) })],
   ['DELETE', /^\/api\/menu\/(\d+)$/, async (db, req, id) => (await remove(db, 'menu_items', id), { ok: true })],
@@ -245,7 +213,7 @@ async function handle(req, env) {
   }
   if (!url.pathname.startsWith('/api/')) throw new HttpError(404, 'ไม่พบหน้านี้');
   await requirePin(req, env, db, req.headers.get('x-pin'));
-  for (const [method, re, fn] of routes) {
+  for (const [method, re, fn] of [...routes, ...serviceRoutes]) {
     const m = url.pathname.match(re);
     if (m && req.method === method) return fn(db, req, m[1] ? Number(m[1]) : undefined);
   }

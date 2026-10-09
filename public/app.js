@@ -1,12 +1,12 @@
 'use strict';
-// หน้าจอ iPad: ตั้งค่าเมนู แพ็กเกจบุฟเฟต์ และโต๊ะ
+// หน้าจอ iPad: ตั้งค่าเมนู แพ็กเกจบุฟเฟต์ และโต๊ะ (หน้าร้านอยู่ใน service.js)
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
 };
 
-const S = { pin: store.get('pin'), view: store.get('view') || 'menu', data: null, sel: null };
+const S = { pin: store.get('pin'), view: store.get('view') || 'floor', data: null, sel: null };
 
 // ---------- ตัวช่วยสร้างหน้าจอ ----------
 function h(tag, attrs = {}, ...kids) {
@@ -17,7 +17,7 @@ function h(tag, attrs = {}, ...kids) {
     else if (k === 'class') el.className = v;
     else el.setAttribute(k, v === true ? '' : v);
   }
-  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : String(kid));
+  for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : String(kid));
   return el;
 }
 const money = (n) => (n == null ? '—' : '฿' + Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 }));
@@ -78,11 +78,15 @@ function loginView() {
 
 // ---------- แถบด้านบน ----------
 function bar() {
-  const tab = (key, label) => h('button', { class: 'tab' + (S.view === key ? ' on' : ''), onclick: () => { S.view = key; S.sel = null; store.set('view', key); render(); } }, label);
-  const soon = (label) => h('button', { class: 'tab', disabled: true, title: 'กำลังทำในส่วนถัดไป' }, label, h('small', {}, 'เร็ว ๆ นี้'));
+  const current = ['table', 'checkout'].includes(S.view) ? 'floor' : S.view;
+  const tab = (key, label) => h('button', { class: 'tab' + (current === key ? ' on' : ''), 'aria-current': current === key ? 'page' : null, onclick: () => {
+    S.sel = null; S.open = null;
+    if (key === 'floor' || key === 'orders') { go(key); return; }
+    S.view = key; store.set('view', key); render();
+  } }, label);
   return h('header', { class: 'bar' },
     h('nav', { class: 'tabs', 'aria-label': 'เมนูหลัก' }, h('span', { class: 'shopn' }, 'ร้านของเรา'),
-      soon('ผังโต๊ะ'), soon('ออเดอร์'), tab('menu', 'เมนู'), tab('packages', 'แพ็กเกจ'), tab('tables', 'โต๊ะ')),
+      tab('floor', 'ผังโต๊ะ'), tab('orders', 'ออเดอร์'), tab('menu', 'เมนู'), tab('packages', 'แพ็กเกจ'), tab('tables', 'ตั้งค่าโต๊ะ')),
     h('button', { class: 'logout', onclick: () => { S.pin = null; store.set('pin', null); render(); } }, 'ออกจากระบบ'));
 }
 
@@ -204,7 +208,7 @@ function tablesView() {
   const { tables } = S.data;
   const t = S.sel === 'new' ? {} : tables.find((x) => x.id === S.sel);
   const list = h('section', { class: 'list' },
-    h('div', { class: 'ph' }, h('span', {}, 'ผังโต๊ะ'), h('span', { class: 'sub' }, `${tables.length} โต๊ะ · แตะโต๊ะเพื่อแก้ไข`)),
+    h('div', { class: 'ph' }, h('span', {}, 'ตั้งค่าโต๊ะ'), h('span', { class: 'sub' }, `${tables.length} โต๊ะ · แตะโต๊ะเพื่อแก้ไข`)),
     h('div', { class: 'grid' },
       tables.map((x) => h('button', { class: 'tile' + (x.id === S.sel ? ' sel' : ''), onclick: () => { S.sel = x.id; render(); } },
         h('span', {}, x.name), h('span', { class: 'sub' }, `${x.seats} ที่นั่ง${x.zone ? ' · ' + x.zone : ''}`))),
@@ -244,8 +248,8 @@ function render() {
   const app = document.getElementById('app');
   if (!S.pin) { app.replaceChildren(loginView()); return; }
   if (!S.data) { app.replaceChildren(h('div', { class: 'login' }, 'กำลังโหลด…')); load().catch((e) => toast(e.message, true)); return; }
-  const view = { menu: menuView, packages: packagesView, tables: tablesView }[S.view] || menuView;
-  app.replaceChildren(bar(), h('main', { class: 'wrap' }, view()));
+  const views = { menu: menuView, packages: packagesView, tables: tablesView, floor: floorView, orders: ordersView, table: tableView, checkout: checkoutView };
+  const view = views[S.view] || floorView;
+  app.replaceChildren(bar(), h('main', { class: 'wrap' + (S.view === 'orders' ? ' full' : '') }, view()));
 }
-
-render();
+// เริ่มทำงานอยู่ท้าย service.js (ต้องโหลดไฟล์นั้นก่อน)
