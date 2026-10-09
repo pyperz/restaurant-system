@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1B2320">
+<title>สั่งอาหาร</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public.css">
+<style>
+.top{position:sticky;top:0;z-index:5}
+.top .row{align-items:center}
+.timer{font-size:15px;font-weight:700;padding:4px 12px;border-radius:999px;background:#2E3A35;color:#fff;white-space:nowrap}
+.timer.warn{background:#C2410C}.timer.over{background:#B42318}
+.seg{display:flex;gap:6px;background:var(--well);padding:5px;border-radius:14px;margin-bottom:12px}
+.seg button{flex:1;height:48px;border:0;border-radius:10px;font-size:16px;font-weight:700;background:transparent;color:var(--ink)}
+.seg button.on{background:var(--ink);color:#fff}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.tile{background:#fff;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;border:3px solid transparent}
+.tile.picked{border-color:var(--ink)}
+.tile.out{opacity:.5}
+.tile img,.tile .noimg{width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--well);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--muted)}
+.tile .b{padding:8px 10px 10px;display:flex;flex-direction:column;gap:2px;flex:1}
+.tile .n{font-size:15px;font-weight:600;line-height:1.3}
+.tile .stp{margin-top:auto;justify-content:space-between;padding-top:6px}
+.tile .stp button{width:42px;height:42px}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;display:flex;align-items:flex-end}
+.sheet[hidden],[hidden]{display:none!important}
+.sheet .card{width:100%;max-width:640px;margin:0 auto;border-radius:18px 18px 0 0;max-height:88vh;overflow:auto;padding-bottom:calc(18px + env(safe-area-inset-bottom))}
+.acts{display:flex;gap:10px;margin:14px 0}
+.acts .btn{flex:1;font-size:15px}
+.hist{background:#fff;border-radius:14px;padding:12px 14px;margin-top:10px}
+.hist .row{font-weight:700}
+.badge{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--well)}
+.badge.ready{background:#D9F5E4;color:#0B4A26}.badge.cancelled{background:#FDECEA;color:#8A1C12}
+.xt{font-size:11px;font-weight:700;padding:1px 6px;border-radius:999px;background:#E0ECF8;color:#124A7C;margin-left:6px}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:12px;font-size:15px;z-index:30;max-width:90vw;text-align:center}
+.toast.err{background:#B42318}
+h3{font-size:17px;margin:18px 0 6px}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="row"><h1 id="tname">กำลังโหลด…</h1><span id="timer" class="timer" hidden></span></div>
+  <p id="sub" class="muted"></p>
+</header>
+<main id="main"></main>
+<div id="cartbar" hidden><button type="button" id="gocart" class="btn wide"></button></div>
+<div id="sheet" class="sheet" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<script>
+'use strict';
+const token = new URLSearchParams(location.search).get('k') || '';
+const $ = (s) => document.querySelector(s);
+const money = (n) => '฿' + Number(n).toLocaleString('th-TH', { maximumFractionDigits: 2 });
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k.startsWith('on')) el.addEventListener(k.slice(2), v); else if (k === 'class') el.className = v; else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat(Infinity)) if (c != null && c !== false) el.append(c instanceof Node ? c : String(c));
+  return el;
+}
+let D = null, skew = 0, mode = 'pkg', cat = '', sending = false;
+const cart = {}; // 'pkg:12' → { qty, note }
+let tt;
+function toast(msg, err) { const t = $('#toast'); t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.hidden = false; clearTimeout(tt); tt = setTimeout(() => (t.hidden = true), 3000); }
+
+async function api(path, body) {
+  const r = await fetch(`/api/t/${encodeURIComponent(token)}${path}`, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const out = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = new Error(out.error || 'เกิดข้อผิดพลาด ลองใหม่อีกครั้ง'); e.status = r.status; throw e; }
+  return out;
+}
+async function load(light) {
+  try {
+    const d = await api(light ? '?light' : '');
+    skew = d.now - Date.now();
+    D = light && D ? { ...D, ...d } : d;
+    if (!D.pkg_items?.length) mode = 'extra';
+    render();
+  } catch (e) {
+    if (e.status === 404) { D = null; $('#main').replaceChildren(h('div', { class: 'card center' }, h('h2', {}, 'QR นี้ใช้ไม่ได้แล้ว'), h('p', { class: 'muted' }, e.message))); $('#cartbar').hidden = true; $('#tname').textContent = 'สั่งอาหาร'; $('#timer').hidden = true; }
+    else if (!light) toast(e.message, true);
+  }
+}
+
+function timerText() {
+  if (!D?.ends_at) return null;
+  const left = D.ends_at - (Date.now() + skew), a = Math.abs(left), m = Math.floor(a / 60000), s = Math.floor((a % 60000) / 1000);
+  return { text: `${left < 0 ? 'เกินเวลา ' : 'เหลือ '}${m}:${String(s).padStart(2, '0')}`, cls: left < 0 ? 'over' : left < 600000 ? 'warn' : '' };
+}
+setInterval(() => { const t = timerText(); const el = $('#timer'); if (!t) { el.hidden = true; return; } el.hidden = false; el.textContent = t.text; el.className = 'timer ' + t.cls; }, 1000);
+setInterval(() => { if (!document.hidden && D && !sending && $('#sheet').hidden) load(true); }, 20000);
+
+const lines = () => Object.entries(cart).map(([k, v]) => { const [md, id] = k.split(':'); const list = md === 'pkg' ? D.pkg_items : D.extra_items; return { k, mode: md, m: list.find((x) => x.id === +id), ...v }; }).filter((l) => l.m);
+function setQty(k, q) { if (q <= 0) delete cart[k]; else cart[k] = { ...(cart[k] || {}), qty: Math.min(30, q) }; render(); }
+
+function render() {
+  if (!D) return;
+  $('#tname').textContent = D.table_name;
+  $('#sub').textContent = [D.shop_name, D.package_name || 'สั่งตามเมนู', `${D.guests} คน`].filter(Boolean).join(' · ');
+  if (!D.enabled) { $('#main').replaceChildren(h('div', { class: 'card center' }, h('p', {}, 'ขณะนี้ร้านปิดการสั่งผ่าน QR กรุณาเรียกพนักงาน'))); return; }
+  const list = (mode === 'pkg' ? D.pkg_items : D.extra_items) || [];
+  const cats = [...new Set(list.map((m) => m.category).filter(Boolean))];
+  if (cat && !cats.includes(cat)) cat = '';
+  const shown = cat ? list.filter((m) => m.category === cat) : list;
+  const over = D.ends_at && Date.now() + skew > D.ends_at;
+  const tile = (m) => {
+    const k = `${mode}:${m.id}`, q = cart[k]?.qty || 0;
+    return h('div', { class: 'tile' + (q ? ' picked' : '') + (m.available ? '' : ' out') },
+      m.image ? h('img', { src: m.image, alt: '', loading: 'lazy' }) : h('div', { class: 'noimg' }, 'ไม่มีรูป'),
+      h('div', { class: 'b' }, h('div', { class: 'n' }, m.name), h('div', { class: 'muted' }, !m.available ? 'หมด' : mode === 'pkg' ? 'ในบุฟเฟต์' : money(m.price)),
+        m.available ? h('div', { class: 'stp' },
+          h('button', { type: 'button', 'aria-label': `ลด ${m.name}`, disabled: !q, onclick: () => setQty(k, q - 1) }, '−'),
+          h('span', {}, q),
+          h('button', { type: 'button', 'aria-label': `เพิ่ม ${m.name}`, onclick: () => setQty(k, q + 1) }, '+')) : null));
+  };
+  const statusTh = { new: 'ส่งเข้าครัวแล้ว', cooking: 'กำลังทำ', ready: 'กำลังมาเสิร์ฟ', done: 'เสิร์ฟแล้ว', cancelled: 'ยกเลิก' };
+  $('#main').replaceChildren(...[
+    D.pkg_items?.length ? h('div', { class: 'seg' },
+      h('button', { class: mode === 'pkg' ? 'on' : '', 'aria-pressed': mode === 'pkg' ? 'true' : 'false', onclick: () => { mode = 'pkg'; cat = ''; render(); } }, 'บุฟเฟต์'),
+      h('button', { class: mode === 'extra' ? 'on' : '', 'aria-pressed': mode === 'extra' ? 'true' : 'false', onclick: () => { mode = 'extra'; cat = ''; render(); } }, 'สั่งเพิ่ม (คิดเงิน)')) : null,
+    h('div', { class: 'acts', style: 'margin:0 0 10px' },
+      h('button', { class: 'btn ghost', onclick: () => callStaff('staff') }, D.call_staff_at ? 'เรียกพนักงานแล้ว' : 'เรียกพนักงาน'),
+      D.orders.length ? h('button', { class: 'btn ghost', onclick: () => document.getElementById('hist')?.scrollIntoView({ behavior: 'smooth' }) }, `ที่สั่งแล้ว (${D.orders.length} รอบ)`) : null),
+    mode === 'pkg' && over ? h('div', { class: 'card', style: 'background:#FDECEA;margin-bottom:10px' }, 'หมดเวลาทานบุฟเฟต์แล้ว สั่งเพิ่มแบบคิดเงินได้ หรือเรียกพนักงาน') : null,
+    cats.length > 1 ? h('div', { class: 'chips' }, h('button', { class: 'chip' + (!cat ? ' on' : ''), onclick: () => { cat = ''; render(); } }, 'ทั้งหมด'),
+      cats.map((c) => h('button', { class: 'chip' + (cat === c ? ' on' : ''), onclick: () => { cat = c; render(); } }, c))) : null,
+    shown.length ? h('div', { class: 'grid' }, shown.map(tile)) : h('p', { class: 'muted center' }, 'ยังไม่มีรายการ'),
+    h('div', { class: 'acts' },
+      h('button', { class: 'btn ghost', onclick: () => callStaff('staff') }, D.call_staff_at ? 'เรียกพนักงานแล้ว' : 'เรียกพนักงาน'),
+      h('button', { class: 'btn ghost', onclick: () => callStaff('bill') }, D.call_bill_at ? 'แจ้งเช็คบิลแล้ว' : `เช็คบิล (${money(D.bill.total)})`)),
+    D.orders.length ? [h('h3', { id: 'hist' }, 'รายการที่สั่งแล้ว'), D.orders.slice().reverse().map((o) => h('div', { class: 'hist' },
+      h('div', { class: 'row' }, h('span', {}, `รอบที่ ${o.round_no}`), h('span', { class: 'badge ' + (o.status === 'ready' ? 'ready' : o.status === 'cancelled' ? 'cancelled' : '') }, statusTh[o.status] || o.status)),
+      o.items.map((i) => h('div', { class: 'muted' }, `${i.qty}× ${i.name}`, i.in_package ? null : h('span', { class: 'xt' }, 'สั่งเพิ่ม')))))] : null,
+  ].flat(Infinity).filter(Boolean));
+  const ls = lines(), n = ls.reduce((a, l) => a + l.qty, 0), sum = ls.filter((l) => l.mode === 'extra').reduce((a, l) => a + l.qty * l.m.price, 0);
+  $('#cartbar').hidden = !n;
+  $('#gocart').textContent = `ดูรายการที่เลือก ${n} จาน${sum ? ` · ${money(sum)}` : ''}`;
+}
+
+function openCart() {
+  const ls = lines();
+  const sheet = $('#sheet');
+  const note = h('input', { class: 'inp', placeholder: 'หมายเหตุถึงครัว (ไม่บังคับ)', maxlength: 200, 'aria-label': 'หมายเหตุถึงครัว' });
+  const close = () => { sheet.hidden = true; render(); };
+  const sum = ls.filter((l) => l.mode === 'extra').reduce((a, l) => a + l.qty * l.m.price, 0);
+  sheet.replaceChildren(h('div', { class: 'card', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'ยืนยันการสั่ง' },
+    h('h2', {}, 'ยืนยันการสั่ง'),
+    ls.map((l) => h('div', { class: 'line' },
+      h('div', { class: 'row' }, h('span', {}, `${l.qty}× ${l.m.name}`, l.mode === 'extra' ? h('span', { class: 'xt' }, 'สั่งเพิ่ม') : null), h('span', {}, l.mode === 'extra' ? money(l.qty * l.m.price) : 'บุฟเฟต์')),
+      h('input', { class: 'inp small', placeholder: 'หมายเหตุ เช่น ไม่เผ็ด', maxlength: 100, value: cart[l.k]?.note || '', 'aria-label': `หมายเหตุ ${l.m.name}`, oninput: (e) => { cart[l.k].note = e.target.value; } }))),
+    sum ? h('div', { class: 'row total' }, h('span', {}, 'ยอดสั่งเพิ่มรอบนี้'), h('span', {}, money(sum))) : null,
+    note,
+    h('div', { class: 'row2', style: 'margin-top:8px' },
+      h('button', { type: 'button', class: 'btn ghost', onclick: close }, 'เลือกเพิ่ม'),
+      h('button', { type: 'button', class: 'btn', id: 'send', onclick: async (e) => {
+        const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'กำลังส่ง…'; sending = true;
+        try {
+          const r = await api('/orders', { items: lines().map((l) => ({ item_id: l.m.id, qty: l.qty, mode: l.mode, note: cart[l.k]?.note || '' })), note: note.value });
+          for (const k in cart) delete cart[k];
+          sheet.hidden = true; toast(`ส่งรอบที่ ${r.round_no} เข้าครัวแล้ว`); await load(true);
+        } catch (err) { toast(err.message, true); btn.disabled = false; btn.textContent = 'ส่งเข้าครัว'; }
+        sending = false;
+      } }, 'ส่งเข้าครัว'))));
+  sheet.hidden = false;
+  sheet.onclick = (e) => { if (e.target === sheet) close(); };
+}
+async function callStaff(type) {
+  try { await api('/call', { type }); toast(type === 'bill' ? 'แจ้งพนักงานเช็คบิลแล้ว รอสักครู่นะคะ' : 'เรียกพนักงานแล้ว รอสักครู่นะคะ'); await load(true); }
+  catch (e) { toast(e.message, true); }
+}
+$('#gocart').onclick = openCart;
+if (!token) $('#main').replaceChildren(h('div', { class: 'card center' }, h('p', {}, 'กรุณาสแกน QR ที่โต๊ะอีกครั้ง')));
+else load(false);
+</script>
+</body>
+</html>

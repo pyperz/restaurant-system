@@ -238,3 +238,8 @@ details>summary{list-style:revert}
 .tbl select.inp{height:44px;font-size:15px;min-width:200px}
 
 .ver{font-size:12px;color:#8A948F}
+
+/* ---------- QR สั่งอาหารที่โต๊ะ ---------- */
+.tc.calling{outline:4px solid #1D6FB8;outline-offset:-4px}
+.callbadge{align-self:flex-start;font-size:14px;font-weight:700;padding:4px 12px;border-radius:999px;background:#1D6FB8;color:#fff}
+.modal{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px}

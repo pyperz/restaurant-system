@@ -39,7 +39,7 @@ function kitchenTicket(o) {
   return h('div', { class: 'tk' },
     h('div', { class: 'tk-big' }, o.table_name),
     h('div', { class: 'tk-mid' }, `รอบที่ ${o.round_no}`),
-    h('div', { class: 'tk-sm' }, fmtTime(o.created_at)),
+    h('div', { class: 'tk-sm' }, fmtTime(o.created_at), o.source === 'qr' ? ' · ลูกค้าสั่งเอง (QR)' : ''),
     h('hr'),
     o.items.map((i) => [h('div', { class: 'tk-line' }, h('b', {}, `${i.qty}×`), ' ', i.name, i.in_package ? '' : ' [สั่งเพิ่ม]'), i.note ? h('div', { class: 'tk-note' }, `- ${i.note}`) : null]),
     o.note ? [h('hr'), h('div', { class: 'tk-note' }, `หมายเหตุ: ${o.note}`)] : null,
@@ -143,12 +143,14 @@ function settingsView() {
 
   const form = h('form', { class: 'panel grow', onsubmit: (e) => {
     e.preventDefault();
-    const body = { shop_name: val(form, 'shop_name'), paper: paper.value, bill_footer: val(form, 'bill_footer'), pay_qr: S.qrTab };
+    const body = { shop_name: val(form, 'shop_name'), paper: paper.value, bill_footer: val(form, 'bill_footer'), pay_qr: S.qrTab, qr_order_on: form.elements.qr_order_on.checked ? '1' : '0' };
     if (S.qrTab === 'promptpay') body.promptpay_id = val(form, 'promptpay_id');
     act(() => api('PUT', '/api/settings', body), 'บันทึกแล้ว');
   } },
     h('div', { class: 'ph' }, h('span', {}, 'ข้อมูลร้าน')),
     field('ชื่อร้าน (แสดงบนแถบด้านบนและใบแจ้งยอด)', { name: 'shop_name', value: st.shop_name, maxlength: 60 }),
+    h('label', { class: 'switch', style: 'background:var(--ground)' }, h('input', { type: 'checkbox', name: 'qr_order_on', checked: st.qr_order_on !== '0' }),
+      h('span', {}, 'ให้ลูกค้าสแกน QR ที่โต๊ะสั่งอาหารเองได้', h('span', { class: 'sub', style: 'display:block;font-weight:400' }, 'เปิดโต๊ะแล้วกด "QR ให้ลูกค้าสั่ง" ในหน้าสั่งอาหาร หรือให้เครื่องที่พิมพ์อัตโนมัติพิมพ์ QR ออกมาเอง'))),
     qrSection,
     h('div', { class: 'field' }, h('label', { for: 'f_paper' }, 'ขนาดกระดาษเครื่องพิมพ์'), paper),
     field('ข้อความท้ายใบแจ้งยอด', { name: 'bill_footer', value: st.bill_footer, maxlength: 120, placeholder: 'ขอบคุณที่ใช้บริการ' }),

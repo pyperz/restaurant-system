@@ -37,12 +37,16 @@ async function loadLive() {
 async function loadDetail() { S.detail = await api('GET', `/api/sessions/${S.sid}`); S.skew = S.detail.now - Date.now(); }
 
 async function go(view, extra = {}) {
-  Object.assign(S, extra, { view });
+  Object.assign(S, { showQr: false }, extra, { view });
   if (['floor', 'orders'].includes(view)) store.set('view', view);
   try {
-    if (view === 'table') { [S.data] = await Promise.all([api('GET', '/api/state'), loadDetail()]); }
+    if (view === 'table') {
+      [S.data] = await Promise.all([api('GET', '/api/state'), loadDetail()]);
+      const ss = S.detail.session; // พนักงานเปิดดูโต๊ะแล้ว = รับทราบการเรียก
+      if (ss.call_staff_at || ss.call_bill_at) { api('POST', `/api/sessions/${ss.id}/ack`).catch(() => {}); ss.call_staff_at = ss.call_bill_at = 0; }
+    }
     else if (view === 'checkout') await loadDetail();
-    else if (['floor', 'orders'].includes(view)) { await loadLive(); alertNewInbox(S.live?.inbox); if (view === 'orders') autoPrint.check(); }
+    else if (['floor', 'orders'].includes(view)) { await loadLive(); alertNewInbox(S.live?.inbox); alertCalls(S.live?.sessions); if (view === 'orders') autoPrint.check(); }
   } catch (e) { toast(e.message, true); }
   render();
 }
@@ -74,7 +78,7 @@ setInterval(async () => {
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
   try {
     if (S.view === 'line') await Promise.all([loadInbox(), loadLive()]); else await loadLive();
-    autoPrint.check(); alertNewInbox(S.live?.inbox);
+    autoPrint.check(); alertNewInbox(S.live?.inbox); alertCalls(S.live?.sessions);
     if (!typing) render();
   } catch {}
 }, 1000);
@@ -82,7 +86,7 @@ setInterval(async () => {
 // ---------- ผังโต๊ะ ----------
 function needLive(view) {
   if (S.live) return false;
-  if (!S.loadingLive) { S.loadingLive = true; loadLive().catch((e) => toast(e.message, true)).finally(() => { S.loadingLive = false; if (S.live) render(); }); }
+  if (!S.loadingLive) { S.loadingLive = true; loadLive().then(() => { alertCalls(S.live?.sessions); alertNewInbox(S.live?.inbox); }).catch((e) => toast(e.message, true)).finally(() => { S.loadingLive = false; if (S.live) render(); }); }
   return true;
 }
 function floorView() {
@@ -96,8 +100,10 @@ function floorView() {
     if (!ses) return h('button', { class: 'tc free' + (S.open?.table_id === t.id ? ' sel' : ''), onclick: () => { S.open = { table_id: t.id, package_id: packages.find((p) => p.active)?.id ?? 0, adults: Math.min(2, t.seats), children: 0 }; render(); } },
       h('span', { class: 'tt' }, t.name), h('span', { class: 'sub' }, `ว่าง · ${t.seats} ที่นั่ง`), h('span', { class: 'btn small' }, 'เปิดโต๊ะ'));
     const ti = timeInfo(ses);
-    return h('button', { class: 'tc ' + ti.cls, 'data-ses': ses.id, onclick: () => go('table', { sid: ses.id, cart: {}, mode: ses.package_id ? 'pkg' : 'extra', cat: '' }) },
+    const calling = ses.call_bill_at ? 'ขอเช็คบิล' : ses.call_staff_at ? 'เรียกพนักงาน' : '';
+    return h('button', { class: 'tc ' + ti.cls + (calling ? ' calling' : ''), 'data-ses': ses.id, onclick: () => go('table', { sid: ses.id, cart: {}, mode: ses.package_id ? 'pkg' : 'extra', cat: '' }) },
       h('span', { class: 'row' }, h('span', { class: 'tt' }, t.name), h('span', { class: 'tag2' }, ti.tag)),
+      calling ? h('span', { class: 'callbadge' }, calling) : null,
       h('span', { class: 'pkn' }, ses.package_name || 'สั่งตามเมนู'),
       h('span', { class: 'sub' }, `${ses.adults + ses.children} คน · สั่งไปแล้ว ${ses.rounds} รอบ`),
       h('span', { class: 'tm' }, ti.label),
@@ -137,6 +143,7 @@ function openTablePanel() {
       h('button', { type: 'button', class: 'btn', onclick: () => doThen(async () => {
         const r = await api('POST', '/api/sessions', { table_id: f.table_id, package_id: f.package_id || null, adults: f.adults, children: pkg ? f.children : 0 });
         S.open = null; await go('table', { sid: r.id, cart: {}, mode: pkg ? 'pkg' : 'extra', cat: '' });
+        if (autoPrint.on() && settings().qr_order_on !== '0') printQrSlip(S.detail?.session); // พิมพ์ QR สั่งอาหารวางบนโต๊ะ
       }, pkg ? 'เปิดโต๊ะแล้ว เริ่มจับเวลา' : 'เปิดโต๊ะแล้ว', async () => {}) }, pkg ? 'เริ่มจับเวลา' : 'เปิดโต๊ะ')));
 }
 
@@ -199,7 +206,7 @@ function tableView() {
 
   const statusTh = { new: 'รอครัวรับ', cooking: 'กำลังทำ', ready: 'พร้อมเสิร์ฟ', done: 'เสิร์ฟแล้ว', cancelled: 'ยกเลิก' };
   const history = d.orders.slice().reverse().map((o) => h('div', { class: 'hist' + (o.status === 'cancelled' ? ' cancelled' : '') },
-    h('div', { class: 'cr' }, h('strong', {}, o.status === 'cancelled' ? 'ยกเลิก' : `รอบที่ ${o.round_no}`), h('span', { class: 'sub' }, `${ago(o.created_at)} · ${statusTh[o.status]}`)),
+    h('div', { class: 'cr' }, h('strong', {}, o.status === 'cancelled' ? 'ยกเลิก' : `รอบที่ ${o.round_no}`, o.source === 'qr' ? h('span', { class: 'xt' }, 'ลูกค้าสั่งเอง') : null), h('span', { class: 'sub' }, `${ago(o.created_at)} · ${statusTh[o.status]}`)),
     h('div', { class: 'sub' }, o.items.map((i) => `${i.qty}× ${i.name}${i.in_package ? '' : ' (สั่งเพิ่ม)'}`).join(', ')),
     ['new', 'cooking'].includes(o.status) ? h('button', { type: 'button', class: 'linkbtn', onclick: () => { if (confirm(`ยกเลิกรอบที่ ${o.round_no} ใช่ไหม?`)) doThen(async () => { await api('PUT', `/api/orders/${o.id}/status`, { status: 'cancelled' }); await loadDetail(); }, 'ยกเลิกรอบแล้ว', async () => render()); } }, 'ยกเลิกรอบนี้') : null));
 
@@ -216,7 +223,8 @@ function tableView() {
       : h('div', { class: 'empty' }, mode === 'pkg' ? 'แพ็กเกจนี้ยังไม่มีรายการอาหาร ไปเลือกได้ที่แท็บ "แพ็กเกจ"' : 'ยังไม่มีเมนูที่ตั้งราคาสั่งเพิ่มไว้'));
 
   const right = h('div', { class: 'panel' },
-    h('div', { class: 'ph' }, h('span', {}, 'รอบนี้')),
+    h('div', { class: 'ph' }, h('span', {}, 'รอบนี้'),
+      ses.qr_token ? h('button', { class: 'btn ghost', style: 'height:44px;font-size:15px', onclick: () => { S.showQr = true; render(); } }, 'QR ให้ลูกค้าสั่ง') : null),
     lines.length ? null : h('div', { class: 'sub' }, 'แตะ + ที่รายการอาหารเพื่อเลือก'),
     pkgLines.length ? [h('div', { class: 'sh' }, `ในแพ็กเกจ (${pkgCount}${ses.max_per_round ? '/' + ses.max_per_round : ''} จาน)`), pkgLines.map(cartLine)] : null,
     over ? h('div', { class: 'warnbox' }, `เกินจำนวนจานต่อรอบ (${ses.max_per_round} จาน)`) : null,
@@ -227,7 +235,7 @@ function tableView() {
     h('button', { class: 'btn ghost', onclick: () => go('checkout', { pay: { method: 'cash', discount: '', penalty: '' } }) }, 'คิดเงิน / ปิดโต๊ะ'),
     d.orders.length ? [h('div', { class: 'sh' }, 'ที่สั่งไปแล้ว'), history]
       : h('button', { type: 'button', class: 'linkbtn', onclick: () => { if (confirm('ยกเลิกการเปิดโต๊ะนี้ใช่ไหม? (ใช้กรณีเปิดผิดโต๊ะ)')) doThen(() => api('DELETE', `/api/sessions/${ses.id}`), 'ยกเลิกการเปิดโต๊ะแล้ว', () => go('floor', { sid: null })); } }, 'เปิดโต๊ะผิด? ยกเลิกการเปิดโต๊ะ'));
-  return [left, right];
+  return [left, right, S.showQr ? qrModal(ses, () => { S.showQr = false; render(); }) : null];
 }
 
 // ---------- คิดเงิน ----------
@@ -294,7 +302,7 @@ function ordersView() {
   const set = (o, status, msg) => doThen(async () => { await api('PUT', `/api/orders/${o.id}/status`, { status }); await loadLive(); }, msg, async () => render());
   const card = (o, next, label, cls) => h('div', { class: 'card' },
     h('div', { class: 'row' }, h('span', { class: 'no' }, o.table_name), h('span', { class: 'badge' }, `รอบที่ ${o.round_no}`)),
-    h('div', { class: 'sub' }, ago(o.created_at)),
+    h('div', { class: 'sub' }, ago(o.created_at), o.source === 'qr' ? h('span', { class: 'xt' }, 'ลูกค้าสั่งเอง') : null),
     o.items.map((i) => h('div', { class: 'it' }, h('span', { class: 'q' }, `${i.qty}×`), h('span', {}, i.name, i.in_package ? null : h('span', { class: 'xt' }, 'สั่งเพิ่ม'), i.note ? h('span', { class: 'inote' }, i.note) : null))),
     o.note ? h('div', { class: 'note' }, o.note) : null,
     h('div', { class: 'row2' },

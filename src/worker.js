@@ -3,7 +3,7 @@
 
 import { all, first, run, HttpError, bad, text, int, baht, toBaht, idList, readJson, insertRows } from './lib.js';
 import { importRoutes } from './importer.js';
-import { SERVICE_SCHEMA, serviceRoutes, checkTableDeletable, getSettings, getQrImage } from './service.js';
+import { SERVICE_SCHEMA, serviceRoutes, checkTableDeletable, getSettings, getQrImage, migrate, tableRoutes } from './service.js';
 import { LINE_SCHEMA, lineRoutes, webhook, publicMenu, publicOrder, publicReserve, inboxCounts } from './line.js';
 
 // ---------- ฐานข้อมูล ----------
@@ -33,7 +33,7 @@ const SCHEMA = [
 ];
 let schemaReady = null;
 function ensureSchema(db) {
-  if (!schemaReady) schemaReady = db.batch([...SCHEMA, ...SERVICE_SCHEMA, ...LINE_SCHEMA].map((s) => db.prepare(s))).catch((e) => { schemaReady = null; throw e; });
+  if (!schemaReady) schemaReady = db.batch([...SCHEMA, ...SERVICE_SCHEMA, ...LINE_SCHEMA].map((s) => db.prepare(s))).then(() => migrate(db)).catch((e) => { schemaReady = null; throw e; });
   return schemaReady;
 }
 
@@ -213,6 +213,10 @@ async function handle(req, env, ctx) {
   // ส่วนที่ไม่ต้องใช้ PIN: LINE ส่งข้อความเข้ามา (ตรวจลายเซ็นของ LINE แทน) และหน้าเว็บสั่งอาหาร/จองของลูกค้า
   if (url.pathname === '/api/line/webhook' && req.method === 'POST') return webhook(req, env, db, ctx);
   if (url.pathname === '/api/public/menu' && req.method === 'GET') return publicMenu(db, env, url);
+  for (const [method, re, fn] of tableRoutes) { // ลูกค้าสแกน QR ที่โต๊ะ
+    const m = url.pathname.match(re);
+    if (m && req.method === method) return fn(db, req, m[1]);
+  }
   if (url.pathname === '/api/public/order' && req.method === 'POST') return publicOrder(db, env, req);
   if (url.pathname === '/api/public/reserve' && req.method === 'POST') return publicReserve(db, env, req);
 

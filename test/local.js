@@ -59,6 +59,7 @@ export function startLocal({ port, pin, dbFile = ':memory:', extraEnv = {} }) {
     if (!file.startsWith(PUBLIC + path.sep) || !fs.existsSync(file)) { res.writeHead(404).end(); return; }
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' }).end(fs.readFileSync(file));
   });
+  server.env = env; // ให้ชุดทดสอบเข้าถึงฐานข้อมูลได้
   return new Promise((ok) => server.listen(port, () => ok(server)));
 }
 
