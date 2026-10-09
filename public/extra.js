@@ -141,7 +141,7 @@ function settingsView() {
     S.qrTab === 'image' ? imagePane : ppPane,
     h('div', { class: 'sub' }, `ตอนนี้ใช้: ${qrMode() === 'image' ? 'รูป QR ที่อัปโหลด' : qrMode() === 'promptpay' ? 'QR PromptPay พร้อมยอดเงิน' : 'ยังไม่ได้ตั้ง'}${S.qrTab !== (st.pay_qr === 'image' ? 'image' : 'promptpay') ? ' · กด "บันทึก" เพื่อเปลี่ยนไปใช้แบบนี้' : ''}`));
 
-  const form = h('form', { class: 'panel grow', onsubmit: (e) => {
+  const form = h('form', { class: 'panel grow', style: 'flex:none;max-height:none', onsubmit: (e) => {
     e.preventDefault();
     const body = { shop_name: val(form, 'shop_name'), paper: paper.value, bill_footer: val(form, 'bill_footer'), pay_qr: S.qrTab, qr_order_on: form.elements.qr_order_on.checked ? '1' : '0' };
     if (S.qrTab === 'promptpay') body.promptpay_id = val(form, 'promptpay_id');
@@ -156,7 +156,7 @@ function settingsView() {
     field('ข้อความท้ายใบแจ้งยอด', { name: 'bill_footer', value: st.bill_footer, maxlength: 120, placeholder: 'ขอบคุณที่ใช้บริการ' }),
     h('button', { class: 'btn', type: 'submit', style: 'max-width:240px' }, 'บันทึก'));
   if (S.qrTab === 'promptpay') showQR(st.promptpay_id);
-  return [h('div', { style: 'display:flex;flex-direction:column;gap:16px;width:100%' }, seg, form)];
+  return [h('div', { style: 'display:flex;flex-direction:column;gap:16px;width:100%' }, seg, form, soundPanel())];
 }
 
 // ---------- รายงานยอดขาย ----------

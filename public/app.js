@@ -6,7 +6,7 @@ const store = {
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
 };
 
-const APP_VERSION = 'v2026.10.10b';
+const APP_VERSION = 'v2026.10.10c';
 const S = { pin: store.get('pin'), view: store.get('view') || 'floor', data: null, sel: null };
 
 // ---------- ตัวช่วยสร้างหน้าจอ ----------

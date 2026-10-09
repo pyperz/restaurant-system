@@ -118,7 +118,7 @@ function render() {
           h('span', {}, q),
           h('button', { type: 'button', 'aria-label': `เพิ่ม ${m.name}`, onclick: () => setQty(k, q + 1) }, '+')) : null));
   };
-  const statusTh = { new: 'ส่งเข้าครัวแล้ว', cooking: 'กำลังทำ', ready: 'กำลังมาเสิร์ฟ', done: 'เสิร์ฟแล้ว', cancelled: 'ยกเลิก' };
+  const statusTh = { new: 'รับรายการแล้ว', cooking: 'กำลังทำ', ready: 'กำลังมาเสิร์ฟ', done: 'เสิร์ฟแล้ว', cancelled: 'ยกเลิก' };
   $('#main').replaceChildren(...[
     D.pkg_items?.length ? h('div', { class: 'seg' },
       h('button', { class: mode === 'pkg' ? 'on' : '', 'aria-pressed': mode === 'pkg' ? 'true' : 'false', onclick: () => { mode = 'pkg'; cat = ''; render(); } }, 'บุฟเฟต์'),
@@ -158,14 +158,14 @@ function openCart() {
     h('div', { class: 'row2', style: 'margin-top:8px' },
       h('button', { type: 'button', class: 'btn ghost', onclick: close }, 'เลือกเพิ่ม'),
       h('button', { type: 'button', class: 'btn', id: 'send', onclick: async (e) => {
-        const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'กำลังส่ง…'; sending = true;
+        const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'กำลังสั่ง…'; sending = true;
         try {
           const r = await api('/orders', { items: lines().map((l) => ({ item_id: l.m.id, qty: l.qty, mode: l.mode, note: cart[l.k]?.note || '' })), note: note.value });
           for (const k in cart) delete cart[k];
-          sheet.hidden = true; toast(`ส่งรอบที่ ${r.round_no} เข้าครัวแล้ว`); await load(true);
-        } catch (err) { toast(err.message, true); btn.disabled = false; btn.textContent = 'ส่งเข้าครัว'; }
+          sheet.hidden = true; toast(`สั่งอาหารรอบที่ ${r.round_no} เรียบร้อยค่ะ`); await load(true);
+        } catch (err) { toast(err.message, true); btn.disabled = false; btn.textContent = 'สั่งอาหาร'; }
         sending = false;
-      } }, 'ส่งเข้าครัว'))));
+      } }, 'สั่งอาหาร'))));
   sheet.hidden = false;
   sheet.onclick = (e) => { if (e.target === sheet) close(); };
 }

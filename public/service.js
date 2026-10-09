@@ -46,7 +46,7 @@ async function go(view, extra = {}) {
       if (ss.call_staff_at || ss.call_bill_at) { api('POST', `/api/sessions/${ss.id}/ack`).catch(() => {}); ss.call_staff_at = ss.call_bill_at = 0; }
     }
     else if (view === 'checkout') await loadDetail();
-    else if (['floor', 'orders'].includes(view)) { await loadLive(); alertNewInbox(S.live?.inbox); alertCalls(S.live?.sessions); if (view === 'orders') autoPrint.check(); }
+    else if (['floor', 'orders'].includes(view)) { await loadLive(); alertNewInbox(S.live?.inbox); alertCalls(S.live?.sessions); alertNewOrders(S.live?.orders); if (view === 'orders') autoPrint.check(); }
   } catch (e) { toast(e.message, true); }
   render();
 }
@@ -78,7 +78,7 @@ setInterval(async () => {
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
   try {
     if (S.view === 'line') await Promise.all([loadInbox(), loadLive()]); else await loadLive();
-    autoPrint.check(); alertNewInbox(S.live?.inbox); alertCalls(S.live?.sessions);
+    autoPrint.check(); alertNewInbox(S.live?.inbox); alertCalls(S.live?.sessions); alertNewOrders(S.live?.orders);
     if (!typing) render();
   } catch {}
 }, 1000);
@@ -86,7 +86,7 @@ setInterval(async () => {
 // ---------- ผังโต๊ะ ----------
 function needLive(view) {
   if (S.live) return false;
-  if (!S.loadingLive) { S.loadingLive = true; loadLive().then(() => { alertCalls(S.live?.sessions); alertNewInbox(S.live?.inbox); }).catch((e) => toast(e.message, true)).finally(() => { S.loadingLive = false; if (S.live) render(); }); }
+  if (!S.loadingLive) { S.loadingLive = true; loadLive().then(() => { alertCalls(S.live?.sessions); alertNewOrders(S.live?.orders); alertNewInbox(S.live?.inbox); }).catch((e) => toast(e.message, true)).finally(() => { S.loadingLive = false; if (S.live) render(); }); }
   return true;
 }
 function floorView() {
