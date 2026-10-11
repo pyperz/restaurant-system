@@ -191,7 +191,7 @@ function reportView() {
       quick('7 วันล่าสุด', thaiToday(-6), thaiToday()), quick('เดือนนี้', monthStart, thaiToday())),
     h('div', { class: 'row2', style: 'max-width:520px' }, dateInp('from', 'ตั้งแต่วันที่'), dateInp('to', 'ถึงวันที่')));
   const d = r.data;
-  if (!d) return [h('div', { class: 'stack' }, head, h('div', { class: 'empty' }, 'กำลังโหลด…'))];
+  if (!d) return [h('div', { class: 'stack' }, shiftPanel(), head, h('div', { class: 'empty' }, 'กำลังโหลด…'))];
 
   const stat = (label, value, sub) => h('div', { class: 'stat' }, h('div', { class: 'sub' }, label), h('div', { class: 'sv' }, value), sub ? h('div', { class: 'sub' }, sub) : null);
   const stats = h('div', { class: 'stats' },
@@ -213,5 +213,5 @@ function reportView() {
   const bills = h('div', { class: 'panel grow' }, h('div', { class: 'sh' }, 'รายการบิล'),
     table([{ label: 'ปิดบิล' }, { label: 'โต๊ะ' }, { label: 'แพ็กเกจ' }, { label: 'คน', num: true }, { label: 'ชำระ' }, { label: 'ยอด', num: true }],
       d.list.slice().reverse().map((b) => [`${fmtDate(b.closed_at)} ${fmtTime(b.closed_at)}`, b.table_name, b.package_name || 'สั่งตามเมนู', b.guests, PAY_TH[b.pay_method] || b.pay_method, money(b.total)])));
-  return [h('div', { class: 'stack' }, head, stats, h('div', { class: 'two' }, methods, days || items), days ? items : null, bills)];
+  return [h('div', { class: 'stack' }, shiftPanel(), head, stats, h('div', { class: 'two' }, methods, days || items), days ? items : null, bills)];
 }

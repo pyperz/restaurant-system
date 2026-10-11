@@ -3,6 +3,7 @@
 
 import { all, first, run, HttpError, bad, text, int, baht, toBaht, idList, readJson, insertRows } from './lib.js';
 import { importRoutes } from './importer.js';
+import { SHIFT_SCHEMA, shiftRoutes } from './shift.js';
 import { SERVICE_SCHEMA, serviceRoutes, checkTableDeletable, getSettings, getQrImage, migrate, tableRoutes } from './service.js';
 import { LINE_SCHEMA, lineRoutes, webhook, publicMenu, publicOrder, publicReserve, inboxCounts } from './line.js';
 
@@ -33,7 +34,7 @@ const SCHEMA = [
 ];
 let schemaReady = null;
 function ensureSchema(db) {
-  if (!schemaReady) schemaReady = db.batch([...SCHEMA, ...SERVICE_SCHEMA, ...LINE_SCHEMA].map((s) => db.prepare(s))).then(() => migrate(db)).catch((e) => { schemaReady = null; throw e; });
+  if (!schemaReady) schemaReady = db.batch([...SCHEMA, ...SERVICE_SCHEMA, ...LINE_SCHEMA, ...SHIFT_SCHEMA].map((s) => db.prepare(s))).then(() => migrate(db)).catch((e) => { schemaReady = null; throw e; });
   return schemaReady;
 }
 
@@ -227,7 +228,7 @@ async function handle(req, env, ctx) {
   }
   if (!url.pathname.startsWith('/api/')) throw new HttpError(404, 'ไม่พบหน้านี้');
   await requirePin(req, env, db, req.headers.get('x-pin'));
-  for (const [method, re, fn] of [...routes, ...serviceRoutes, ...lineRoutes, ...importRoutes]) {
+  for (const [method, re, fn] of [...routes, ...serviceRoutes, ...lineRoutes, ...importRoutes, ...shiftRoutes]) {
     const m = url.pathname.match(re);
     if (m && req.method === method) {
       const out = await fn(db, req, m[1] ? Number(m[1]) : undefined, env);
