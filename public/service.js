@@ -236,7 +236,7 @@ function tableView() {
     lines.length ? noteInp : null,
     extraLines.length ? h('div', { class: 'sum' }, h('span', {}, 'ยอดสั่งเพิ่มรอบนี้'), h('span', {}, money(extraSum))) : null,
     h('button', { class: 'btn sendbtn', disabled: !lines.length || over, onclick: send }, 'ส่งเข้าครัว'),
-    h('button', { class: 'btn ghost', onclick: () => go('checkout', { pay: { method: 'cash', discount: '', penalty: '' } }) }, 'คิดเงิน / ปิดโต๊ะ'),
+    h('button', { class: 'btn ghost', onclick: () => go('checkout', { paid: null, pay: { method: 'cash', discount: '', penalty: '', received: '' } }) }, 'คิดเงิน / ปิดโต๊ะ'),
     d.orders.length ? [h('div', { class: 'sh' }, 'ที่สั่งไปแล้ว'), history]
       : h('button', { type: 'button', class: 'linkbtn', onclick: () => { if (confirm('ยกเลิกการเปิดโต๊ะนี้ใช่ไหม? (ใช้กรณีเปิดผิดโต๊ะ)')) doThen(() => api('DELETE', `/api/sessions/${ses.id}`), 'ยกเลิกการเปิดโต๊ะแล้ว', () => go('floor', { sid: null })); } }, 'เปิดโต๊ะผิด? ยกเลิกการเปิดโต๊ะ'));
   return [left, right, S.showQr ? qrModal(ses, () => { S.showQr = false; render(); }) : null];
@@ -244,6 +244,7 @@ function tableView() {
 
 // ---------- คิดเงิน ----------
 function checkoutView() {
+  if (S.paid && S.paid.sid === S.sid) return paidView(S.paid);
   const d = S.detail;
   if (!d || d.session.id !== S.sid) return [h('div', { class: 'empty' }, 'กำลังโหลด…')];
   const ses = d.session, b = d.bill, p = S.pay;
@@ -258,7 +259,7 @@ function checkoutView() {
   }));
   const adj = (label, key) => h('div', { class: 'adj' }, h('label', { for: 'f_' + key }, label),
     h('input', { class: 'inp', id: 'f_' + key, type: 'number', inputmode: 'decimal', min: 0, step: '1', value: p[key], placeholder: '0', style: 'width:140px;text-align:right',
-      oninput: (e) => { p[key] = e.target.value; totalEl.textContent = money(total()); refreshQR(); } }));
+      oninput: (e) => { p[key] = e.target.value; totalEl.textContent = money(total()); refreshQR(); refreshCash(); } }));
 
   const left = h('div', { class: 'panel grow' },
     h('div', { class: 'ph' }, h('span', {}, h('button', { class: 'back', 'aria-label': 'กลับไปหน้าสั่งอาหาร', onclick: () => go('table') }, '‹'), `บิล ${ses.table_name}`),
@@ -283,19 +284,51 @@ function checkoutView() {
       : h('div', { class: 'warnbox' }, 'ยังไม่ได้ตั้ง QR รับเงินของร้าน ไปตั้งได้ที่แท็บ "ตั้งค่า"'));
   }
   refreshQR();
+  // เงินสด: ใส่เงินที่รับมา → โชว์เงินทอนทันที (ไม่ใส่ = รับพอดี)
+  const changeEl = h('div', { class: 'change' });
+  const recvInp = h('input', { class: 'inp big', id: 'f_recv', type: 'number', inputmode: 'decimal', min: 0, step: '1', placeholder: 'ไม่ใส่ = รับพอดี', value: p.received || '',
+    'aria-label': 'รับเงินมา (บาท)', oninput: (e) => { p.received = e.target.value; refreshCash(); },
+    onkeydown: (e) => { if (e.key === 'Enter') document.getElementById('paybtn')?.click(); } });
+  const chips = h('div', { class: 'chips' });
+  function refreshCash() {
+    const t = total(), got = p.received === '' || p.received == null ? t : Number(p.received);
+    const diff = Math.round((got - t) * 100) / 100;
+    changeEl.className = 'change' + (diff < 0 ? ' short' : '');
+    changeEl.replaceChildren(h('span', {}, diff < 0 ? 'ยังขาด' : 'เงินทอน'), h('b', {}, money(Math.abs(diff))));
+    chips.replaceChildren(h('button', { type: 'button', class: 'chip' + (!p.received ? ' on' : ''), onclick: () => { p.received = ''; recvInp.value = ''; refreshCash(); } }, 'พอดี'),
+      ...cashSuggestions(t).map((v) => h('button', { type: 'button', class: 'chip' + (Number(p.received) === v ? ' on' : ''), onclick: () => { p.received = String(v); recvInp.value = v; refreshCash(); } }, money(v))));
+  }
+  refreshCash();
+  const cashBox = p.method === 'cash' ? h('div', { class: 'cashbox' }, h('label', { for: 'f_recv', class: 'lab' }, 'รับเงินมา (บาท)'), recvInp, chips, changeEl) : null;
+
+  async function pay() {
+    const t = total(), cash = p.method === 'cash';
+    const received = cash ? (p.received === '' || p.received == null ? t : Number(p.received)) : null;
+    if (cash && !(received >= t)) { toast(`รับเงินมาไม่พอ ยอดชำระ ${money(t)}`, true); recvInp.focus(); return; }
+    if (!confirm(cash ? `รับเงิน ${money(received)} ทอน ${money(Math.round((received - t) * 100) / 100)} และปิด${ses.table_name}?` : `ยืนยันรับเงิน ${money(t)} (${PAY_TH[p.method]}) และปิด${ses.table_name}?`)) return;
+    const btn = document.getElementById('paybtn'); if (btn) { btn.disabled = true; btn.textContent = 'กำลังบันทึก…'; }
+    try {
+      const r = await api('POST', `/api/sessions/${ses.id}/close`, { method: p.method, discount: num(p.discount), penalty: num(p.penalty), received: cash ? received : undefined });
+      const pp = { ...p }, rc = { no: r.receipt_no, method: p.method, received: r.received, change: r.change, at: Date.now() };
+      S.paid = { sid: ses.id, table: ses.table_name, no: r.receipt_no, total: r.bill.total, method: p.method, received: r.received, change: r.change, printed: false,
+        doc: () => billDoc(d, pp, r.bill.total, false, rc) };
+      if (cash && drawer.on()) drawer.open({ quiet: true });           // เปิดลิ้นชักพร้อมกับพิมพ์ใบเสร็จ
+      if (receiptAuto()) { printNodes(S.paid.doc()); S.paid.printed = true; }
+      sound.kaching();
+      S.live = null; render();
+    } catch (e) { toast(e.message, true); if (btn) { btn.disabled = false; btn.textContent = 'ยืนยันรับเงิน + ปิดโต๊ะ'; } }
+  }
+
   const right = h('div', { class: 'panel' },
     h('div', { class: 'ph' }, h('span', {}, 'ชำระเงิน')),
     h('div', { class: 'opts' }, methods.map(([k, l]) => h('button', { type: 'button', class: 'opt' + (p.method === k ? ' sel' : ''), 'aria-pressed': p.method === k ? 'true' : 'false', onclick: () => { p.method = k; render(); } }, l))),
     qrWrap,
-    h('div', { class: 'sub' }, p.method === 'cash' ? 'รับเงินสดแล้วกดยืนยัน' : 'ตรวจว่าเงินเข้าบัญชีร้านแล้ว (เช่น ในแอป K SHOP) จึงกดยืนยัน'),
-    h('button', { class: 'btn ghost', onclick: () => printNodes(billDoc(d, p, total(), p.method === 'promptpay' && hasPayQR())) }, 'พิมพ์ใบแจ้งยอด'),
-    h('button', { class: 'btn big', onclick: () => {
-      if (!confirm(`ยืนยันรับเงิน ${money(total())} และปิด${ses.table_name}?`)) return;
-      doThen(async () => {
-        const r = await api('POST', `/api/sessions/${ses.id}/close`, { method: p.method, discount: num(p.discount), penalty: num(p.penalty) });
-        sound.kaching(); toast(`ปิด${ses.table_name}แล้ว · ${money(r.bill.total)}`);
-      }, null, () => go('floor', { sid: null, detail: null }));
-    } }, 'ยืนยันรับเงิน + ปิดโต๊ะ'));
+    cashBox,
+    p.method === 'cash' ? null : h('div', { class: 'sub' }, 'ตรวจว่าเงินเข้าบัญชีร้านแล้ว (เช่น ในแอป K SHOP) จึงกดยืนยัน'),
+    h('div', { class: 'row2' },
+      h('button', { class: 'btn ghost', onclick: () => printNodes(billDoc(d, p, total(), p.method === 'promptpay' && hasPayQR())) }, 'พิมพ์ใบแจ้งยอด'),
+      drawer.on() ? h('button', { class: 'btn ghost', onclick: () => drawer.open() }, 'เปิดลิ้นชัก') : null),
+    h('button', { class: 'btn big', id: 'paybtn', onclick: pay }, 'ยืนยันรับเงิน + ปิดโต๊ะ'));
   return [left, right];
 }
 

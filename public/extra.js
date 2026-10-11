@@ -47,7 +47,8 @@ function kitchenTicket(o) {
 }
 function printOrder(o) { printNodes(kitchenTicket(o)); }
 
-function billDoc(d, p, total, withQR) {
+// rc = ใบเสร็จหลังรับเงิน { no, method, received, change, at }
+function billDoc(d, p, total, withQR, rc) {
   const ses = d.session, st = settings();
   const row = (a, b) => h('div', { class: 'tk-row' }, h('span', {}, a), h('span', {}, b));
   const extras = {};
@@ -56,8 +57,9 @@ function billDoc(d, p, total, withQR) {
   }));
   const num = (v) => (Number(v) > 0 ? Number(v) : 0);
   return h('div', { class: 'tk' },
-    h('div', { class: 'tk-mid', style: 'text-align:center' }, st.shop_name || 'ใบแจ้งยอด'),
-    h('div', { class: 'tk-sm', style: 'text-align:center' }, `${ses.table_name} · ${fmtDate(Date.now())} ${fmtTime(Date.now())}`),
+    h('div', { class: 'tk-mid', style: 'text-align:center' }, st.shop_name || (rc ? 'ใบเสร็จรับเงิน' : 'ใบแจ้งยอด')),
+    st.shop_name ? h('div', { class: 'tk-sm', style: 'text-align:center' }, rc ? `ใบเสร็จรับเงิน เลขที่ ${rc.no}` : 'ใบแจ้งยอด') : rc ? h('div', { class: 'tk-sm', style: 'text-align:center' }, `เลขที่ ${rc.no}`) : null,
+    h('div', { class: 'tk-sm', style: 'text-align:center' }, `${ses.table_name} · ${fmtDate(rc?.at || Date.now())} ${fmtTime(rc?.at || Date.now())}`),
     h('hr'),
     ses.package_name ? [
       ses.adults ? row(`${ses.package_name} ผู้ใหญ่ ${ses.adults}×${ses.adult_price}`, money(ses.adults * ses.adult_price)) : null,
@@ -67,9 +69,11 @@ function billDoc(d, p, total, withQR) {
     num(p.discount) ? row('ส่วนลด', '-' + money(num(p.discount))) : null,
     h('hr'),
     h('div', { class: 'tk-row tk-mid' }, h('span', {}, 'ยอดชำระ'), h('span', {}, money(total))),
-    withQR ? [h('div', { class: 'tk-sm', style: 'text-align:center;margin-top:6px' }, qrHint(total)), paymentQR(total, 4)] : null,
+    rc ? [row('ชำระโดย', PAY_TH[rc.method] || rc.method),
+      rc.method === 'cash' ? [row('รับเงิน', money(rc.received)), h('div', { class: 'tk-row tk-mid' }, h('span', {}, 'เงินทอน'), h('span', {}, money(rc.change)))] : null] : null,
+    !rc && withQR ? [h('div', { class: 'tk-sm', style: 'text-align:center;margin-top:6px' }, qrHint(total)), paymentQR(total, 4)] : null,
     h('div', { class: 'tk-sm', style: 'text-align:center;margin-top:6px' }, st.bill_footer || 'ขอบคุณที่ใช้บริการ'),
-    h('div', { class: 'tk-sm', style: 'text-align:center' }, '(ใบแจ้งยอด ไม่ใช่ใบกำกับภาษี)'),
+    h('div', { class: 'tk-sm', style: 'text-align:center' }, rc ? '(ไม่ใช่ใบกำกับภาษี)' : '(ใบแจ้งยอด ไม่ใช่ใบกำกับภาษี)'),
     h('div', { class: 'tk-cut' }));
 }
 
@@ -163,7 +167,7 @@ function settingsView() {
     field('ข้อความท้ายใบแจ้งยอด', { name: 'bill_footer', value: st.bill_footer, maxlength: 120, placeholder: 'ขอบคุณที่ใช้บริการ' }),
     h('button', { class: 'btn', type: 'submit', style: 'max-width:240px' }, 'บันทึก'));
   if (S.qrTab === 'promptpay') showQR(st.promptpay_id);
-  return [h('div', { style: 'display:flex;flex-direction:column;gap:16px;width:100%' }, seg, form, soundPanel())];
+  return [h('div', { style: 'display:flex;flex-direction:column;gap:16px;width:100%' }, seg, form, drawerPanel(), soundPanel())];
 }
 
 // ---------- รายงานยอดขาย ----------

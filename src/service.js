@@ -43,7 +43,8 @@ const MIGRATIONS = {
   orders: [['source', "ALTER TABLE orders ADD COLUMN source TEXT NOT NULL DEFAULT 'staff'"]],
   sessions: [['qr_token', 'ALTER TABLE sessions ADD COLUMN qr_token TEXT'],
     ['call_staff_at', 'ALTER TABLE sessions ADD COLUMN call_staff_at INTEGER NOT NULL DEFAULT 0'],
-    ['call_bill_at', 'ALTER TABLE sessions ADD COLUMN call_bill_at INTEGER NOT NULL DEFAULT 0']],
+    ['call_bill_at', 'ALTER TABLE sessions ADD COLUMN call_bill_at INTEGER NOT NULL DEFAULT 0'],
+    ['received_satang', 'ALTER TABLE sessions ADD COLUMN received_satang INTEGER']],
 };
 export async function migrate(db) {
   for (const [table, cols] of Object.entries(MIGRATIONS)) {
@@ -214,13 +215,19 @@ async function closeSession(db, id, b) {
   const items = await all(db, `SELECT i.* FROM order_items i JOIN orders o ON o.id = i.order_id
     WHERE o.session_id = ? AND o.status != 'cancelled'`, id);
   const bill = computeBill(s, items, { discount, penalty });
+  // เงินสด: บันทึกเงินที่รับมา เพื่อคิดเงินทอนและพิมพ์ใบเสร็จ (ไม่ใส่ = รับพอดี)
+  let received = null;
+  if (b.method === 'cash') {
+    received = b.received == null || b.received === '' ? bill.total : baht(b.received, 'เงินที่รับมา');
+    if (received < bill.total) throw bad(`รับเงินมาไม่พอ ยอดชำระ ${toBaht(bill.total)} บาท`);
+  }
   // ปิดบิลแล้วออเดอร์ที่ค้างอยู่ถือว่าเสร็จ ไม่ให้ค้างบนจอครัว
   await db.batch([
-    db.prepare(`UPDATE sessions SET status='closed', closed_at=?, discount_satang=?, penalty_satang=?, total_satang=?, pay_method=?
-      WHERE id=? AND status='open'`).bind(Date.now(), discount, penalty, bill.total, b.method, id),
+    db.prepare(`UPDATE sessions SET status='closed', closed_at=?, discount_satang=?, penalty_satang=?, total_satang=?, pay_method=?, received_satang=?
+      WHERE id=? AND status='open'`).bind(Date.now(), discount, penalty, bill.total, b.method, received, id),
     db.prepare("UPDATE orders SET status='done' WHERE session_id=? AND status IN ('new','cooking','ready')").bind(id),
   ]);
-  return { ok: true, bill: billOut(bill) };
+  return { ok: true, bill: billOut(bill), receipt_no: id, received: received == null ? null : toBaht(received), change: received == null ? 0 : toBaht(received - bill.total) };
 }
 
 // เปิดโต๊ะผิด: ยกเลิกได้เฉพาะตอนที่ยังไม่มีออเดอร์

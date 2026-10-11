@@ -81,10 +81,18 @@ const sound = {
     // เหรียญกรุ๊งกริ๊งเบาๆ
     [0.3, 0.38, 0.47].forEach((d2, i) => this.tones([[4200 + i * 500, d2, 0.12]], 0.05));
   },
+  // เสียงไทยในเครื่อง: Windows มีแต่ "Pattara" (ผู้ชาย) · Edge มี "Premwadee Online" (ผู้หญิง) · Mac มี Kanya/Narisa · Android มีเสียงผู้หญิงของ Google
+  thaiVoices() { return (window.speechSynthesis?.getVoices() || []).filter((v) => /^th/i.test(v.lang) || /thai|ไทย/i.test(v.name)); },
+  gender(v) {
+    if (/pattara|niwat|\bmale\b|ผู้ชาย/i.test(v.name) && !/female/i.test(v.name)) return 'm';
+    if (/premwadee|achara|kanya|narisa|female|ผู้หญิง|google/i.test(v.name) || /th-th-x-|th-th-language/i.test(v.voiceURI || '')) return 'f';
+    return '?';
+  },
   thaiVoice() {
-    const vs = (window.speechSynthesis?.getVoices() || []).filter((v) => /^th/i.test(v.lang) || /thai|ไทย/i.test(v.name));
-    const female = /premwadee|achara|kanya|narisa|pattara|female|ผู้หญิง/i; // ชื่อเสียงผู้หญิงที่พบบ่อยบน Windows / Edge / Mac / Android
-    return vs.find((v) => female.test(v.name) && /online|natural/i.test(v.name)) || vs.find((v) => female.test(v.name)) || vs.find((v) => !/niwat|male/i.test(v.name)) || vs[0] || null;
+    const vs = this.thaiVoices(), pick = store.get('voice_name');
+    if (pick) { const v = vs.find((x) => x.name === pick); if (v) return v; } // เลือกเองในหน้าตั้งค่า
+    // อัตโนมัติ: เอาเฉพาะเสียงผู้หญิง (ไม่มี = ใช้เสียงกริ๊งแทน ไม่ใช้เสียงผู้ชาย)
+    return vs.find((v) => this.gender(v) === 'f' && /online|natural/i.test(v.name)) || vs.find((v) => this.gender(v) === 'f') || vs.find((v) => this.gender(v) === '?') || null;
   },
   say(text) {
     if (!this.on()) return;
@@ -134,6 +142,18 @@ function alertNewOrders(orders) {
   lastOrderIds = new Set([...(lastOrderIds || []), ...qr.map((o) => o.id)]);
 }
 
+function voicePicker(cur) {
+  const vs = sound.thaiVoices();
+  if (!vs.length) return h('div', { class: 'sub' }, 'เสียงที่ใช้: (ไม่มีเสียงภาษาไทยในเครื่องนี้)');
+  const label = (v) => `${v.name} — ${{ f: 'ผู้หญิง', m: 'ผู้ชาย', '?': 'ไม่ทราบ' }[sound.gender(v)]}`;
+  return h('div', { class: 'field' }, h('label', { for: 'f_voice' }, 'เสียงพูด'),
+    h('select', { class: 'inp', id: 'f_voice', onchange: (e) => { store.set('voice_name', e.target.value || null); render(); } },
+      h('option', { value: '' }, `อัตโนมัติ (เสียงผู้หญิง)${!store.get('voice_name') ? ` → ${cur ? cur.name : 'ไม่มี ใช้เสียงกริ๊ง'}` : ''}`),
+      vs.map((v) => h('option', { value: v.name, selected: store.get('voice_name') === v.name }, label(v)))));
+}
+// รายชื่อเสียงโหลดช้ากว่าหน้า → พอโหลดเสร็จ ถ้าอยู่หน้าตั้งค่าให้วาดใหม่
+if (window.speechSynthesis) speechSynthesis.addEventListener?.('voiceschanged', () => { if (S.view === 'settings') render(); });
+
 function soundPanel() {
   const sw = (key, label, sub) => h('label', { class: 'switch', style: 'background:var(--ground)' },
     h('input', { type: 'checkbox', checked: store.get(key) !== '1', onchange: (e) => { store.set(key, e.target.checked ? null : '1'); render(); } }),
@@ -146,11 +166,13 @@ function soundPanel() {
       h('span', {}, 'พิมพ์และรับออเดอร์ใหม่อัตโนมัติ', h('span', { class: 'sub', style: 'display:block;font-weight:400' }, 'เปิดเฉพาะเครื่องที่ต่อเครื่องพิมพ์ ออเดอร์ใหม่ (ทั้งลูกค้าสั่งเองและพนักงานสั่ง) จะพิมพ์ใบครัวเองและขึ้น "กำลังทำ" ทันที ไม่ต้องกดรับ · ต้องเปิด Chrome แบบ --kiosk-printing ถึงจะไม่มีหน้าต่างถามก่อนพิมพ์'))),
     sw('snd_off', 'เปิดเสียงเตือนบนเครื่องนี้', 'ออเดอร์ใหม่จากลูกค้า = "ติ๊ง-ต่อง" · เรียกพนักงาน/เช็คบิล = เสียงผู้หญิงประกาศ · รับเงินปิดโต๊ะ = "กะ-ฉิ่ง!"'),
     sw('voice_off', 'ใช้เสียงพูดประกาศ', '"ลูกค้าโต๊ะที่ 5 เรียกพนักงานค่ะ" / "ลูกค้าโต๊ะที่ 5 ขอเช็คบิลค่ะ"'),
-    h('div', { class: 'sub' }, v ? `เสียงที่ใช้: ${v.name}` : 'เครื่องนี้ยังไม่มีเสียงพูดภาษาไทย จะใช้เสียงกริ๊งแทน (ดูวิธีเพิ่มด้านล่าง)'),
+    voicePicker(v),
     h('div', { class: 'row3', style: 'display:flex;flex-wrap:wrap;gap:10px' },
       h('button', { type: 'button', class: 'btn ghost', onclick: () => sound.orderChime() }, 'ทดสอบเสียงออเดอร์ใหม่'),
       h('button', { type: 'button', class: 'btn ghost', onclick: () => sound.say('ลูกค้าโต๊ะที่ 5 เรียกพนักงานค่ะ') }, 'ทดสอบเสียงเรียกพนักงาน'),
       h('button', { type: 'button', class: 'btn ghost', onclick: () => sound.kaching() }, 'ทดสอบเสียงรับเงิน')),
-    v ? null : h('div', { class: 'warnbox' }, 'Windows: Settings → Time & language → Language & region → Add a language → ไทย (ติ๊ก Speech / Text-to-speech) แล้วปิดเปิด Chrome ใหม่ · ถ้าใช้ Microsoft Edge จะมีเสียงผู้หญิงแบบธรรมชาติ (Premwadee) ให้เลย'),
+    v && sound.gender(v) !== 'm' ? null : h('div', { class: 'warnbox' }, sound.thaiVoices().length
+      ? 'เครื่องนี้มีแต่เสียงผู้ชาย (Windows ให้มาแค่เสียง Pattara) ระบบเลยใช้เสียงกริ๊งแทน · ถ้าอยากได้เสียงผู้หญิง ให้เปิดระบบด้วย Microsoft Edge (มีเสียง Premwadee ให้ฟรี ต้องต่ออินเทอร์เน็ต) ดูวิธีตั้งค่า Edge ในคู่มือ หัวข้อ "เสียงเตือน"'
+      : 'เครื่องนี้ไม่มีเสียงพูดภาษาไทย ระบบใช้เสียงกริ๊งแทน · แนะนำเปิดระบบด้วย Microsoft Edge จะมีเสียงผู้หญิง Premwadee ให้เลย'),
     h('div', { class: 'sub' }, 'เปิดหน้าผังโต๊ะหรือออเดอร์ทิ้งไว้ และแตะหน้าจอ 1 ครั้งหลังเปิดเครื่อง เบราว์เซอร์ถึงจะยอมให้มีเสียง'));
 }

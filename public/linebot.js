@@ -106,7 +106,7 @@ function takeawayStrip() {
   if (!list.length) return null;
   return h('div', { style: 'margin-top:18px;display:flex;flex-direction:column;gap:10px' },
     h('div', { class: 'ph' }, h('span', {}, 'สั่งกลับบ้าน'), h('span', { class: 'sub' }, `${list.length} ออเดอร์`)),
-    h('div', { class: 'tgrid' }, list.map((s) => h('button', { class: 'tc ok', style: 'min-height:120px', onclick: () => go('checkout', { sid: s.id, pay: { method: 'cash', discount: '', penalty: '' } }) },
+    h('div', { class: 'tgrid' }, list.map((s) => h('button', { class: 'tc ok', style: 'min-height:120px', onclick: () => go('checkout', { sid: s.id, paid: null, pay: { method: 'cash', discount: '', penalty: '', received: '' } }) },
       h('span', { class: 'pkn' }, s.table_name), h('span', { class: 'sub' }, `รับเมื่อ ${new Date(s.opened_at).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`),
       h('span', { class: 'btn small', style: 'margin-top:auto' }, 'คิดเงิน')))));
 }

@@ -100,3 +100,17 @@ test('โต๊ะสั่งตามเมนู (ไม่ใช่บุฟ
   const d = await ok('GET', `/api/sessions/${s2.id}`);
   assert.equal(d.bill.total, 240);
 });
+
+test('รับเงินสด: คิดเงินทอน และรับเงินไม่พอไม่ได้', async () => {
+  const t3 = (await ok('POST', '/api/tables', { name: 'โต๊ะเงินสด', seats: 2 })).id;
+  const s = await ok('POST', '/api/sessions', { table_id: t3, adults: 1 });
+  await ok('POST', `/api/sessions/${s.id}/orders`, { items: [{ item_id: shrimp, qty: 1, mode: 'extra' }, { item_id: coke, qty: 1, mode: 'extra' }] });
+  const low = await call('POST', `/api/sessions/${s.id}/close`, { method: 'cash', received: 100 });
+  assert.equal(low.status, 400); assert.match(low.body.error, /ไม่พอ/);
+  const r = await ok('POST', `/api/sessions/${s.id}/close`, { method: 'cash', received: 500 });
+  assert.equal(r.bill.total, 175); assert.equal(r.received, 500); assert.equal(r.change, 325); assert.equal(r.receipt_no, s.id);
+  const s2 = await ok('POST', '/api/sessions', { table_id: t3, adults: 1 });
+  await ok('POST', `/api/sessions/${s2.id}/orders`, { items: [{ item_id: coke, qty: 2, mode: 'extra' }] });
+  const exact = await ok('POST', `/api/sessions/${s2.id}/close`, { method: 'cash' }); // ไม่ใส่ = รับพอดี
+  assert.equal(exact.change, 0); assert.equal(exact.received, 50);
+});
