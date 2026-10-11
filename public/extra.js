@@ -33,7 +33,7 @@ function printNodes(...nodes) {
   document.getElementById('pagesize').textContent = `@page{size:${settings().paper}mm auto;margin:0}`;
   // รอรูป (เช่น QR) โหลดเสร็จก่อนสั่งพิมพ์
   const imgs = [...area.querySelectorAll('img')].map((i) => (i.complete ? null : new Promise((ok) => { i.onload = i.onerror = ok; })));
-  Promise.all(imgs).then(() => setTimeout(() => window.print(), 50));
+  Promise.all(imgs).then(() => setTimeout(() => kiosk.print(), 50));
 }
 function kitchenTicket(o) {
   return h('div', { class: 'tk' },

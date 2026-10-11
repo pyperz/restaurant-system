@@ -263,3 +263,5 @@ details>summary{list-style:revert}
 .paid .change{justify-content:center;gap:16px;background:#E7F5EC;border-radius:16px;padding:18px}
 .paid .change b{font-size:56px}.paidtot{font-size:22px;font-weight:700}
 a.btn{text-decoration:none;display:inline-flex;align-items:center;justify-content:center}
+.kbanner{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:center;background:#FDECEA;color:#8A1C12;padding:10px 16px;font-weight:600}
+.kbanner .btn{padding:8px 14px;font-size:14px}

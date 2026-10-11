@@ -4,6 +4,8 @@
 const HELPER = 'http://127.0.0.1:17777';
 const drawer = {
   on: () => store.get('drawer_on') === '1',
+  conn: () => store.get('drawer_conn') || 'usb',          // usb = เครื่องพิมพ์เสียบ USB เข้าคอม · lan = ต่อสายแลน
+  printer: () => store.get('drawer_printer') || '',       // ชื่อเครื่องพิมพ์ใน Windows (ว่าง = เครื่องพิมพ์หลัก)
   ip: () => store.get('printer_ip') || '',
   pin: () => store.get('drawer_pin') || '2',
   async call(path) {
@@ -12,15 +14,23 @@ const drawer = {
     finally { clearTimeout(t); }
   },
   async open({ quiet = false } = {}) {
-    if (!this.ip()) { toast('ยังไม่ได้ใส่ IP เครื่องพิมพ์ (ตั้งค่า → เครื่องนี้ → ลิ้นชักเก็บเงิน)', true); return false; }
+    const lan = this.conn() === 'lan';
+    if (lan && !this.ip()) { toast('ยังไม่ได้ใส่ IP เครื่องพิมพ์ (ตั้งค่า → เครื่องนี้ → ลิ้นชักเก็บเงิน)', true); return false; }
     try {
-      const j = await this.call(`/drawer?ip=${encodeURIComponent(this.ip())}&pin=${this.pin()}`);
-      if (j.ok) { if (!quiet) toast('เปิดลิ้นชักแล้ว'); return true; }
-      toast(j.error === 'printer_unreachable' ? 'ต่อเครื่องพิมพ์ไม่ได้ ตรวจ IP เครื่องพิมพ์ และดูว่าเครื่องพิมพ์เปิดอยู่' : j.error === 'bad_ip' ? 'IP เครื่องพิมพ์ไม่ถูกต้อง (เช่น 192.168.1.100)' : 'เปิดลิ้นชักไม่ได้', true);
+      const target = lan ? `ip=${encodeURIComponent(this.ip())}` : `printer=${encodeURIComponent(this.printer())}`;
+      const j = await this.call(`/drawer?${target}&pin=${this.pin()}`);
+      if (j.ok) { if (!quiet) toast('ส่งคำสั่งเปิดลิ้นชักแล้ว'); return true; }
+      toast({
+        printer_unreachable: 'ต่อเครื่องพิมพ์ไม่ได้ ตรวจ IP เครื่องพิมพ์ และดูว่าเครื่องพิมพ์เปิดอยู่',
+        bad_ip: 'IP เครื่องพิมพ์ไม่ถูกต้อง (เช่น 192.168.1.100)',
+        printer_not_found: 'ไม่พบเครื่องพิมพ์นี้ใน Windows เลือกชื่อเครื่องพิมพ์ใหม่ในหน้าตั้งค่า',
+        print_failed: 'สั่งเครื่องพิมพ์ไม่สำเร็จ ดูว่าเครื่องพิมพ์เปิดอยู่และสาย USB เสียบแน่น',
+      }[j.error] || 'เปิดลิ้นชักไม่ได้', true);
     } catch { toast('เปิดลิ้นชักไม่ได้: ยังไม่ได้ติดตั้งตัวช่วยเปิดลิ้นชักบนเครื่องนี้ หรือยังไม่ได้กด "อนุญาต"', true); }
     return false;
   },
-  async ping() { try { return !!(await this.call('/ping')).ok; } catch { return false; } },
+  async ping() { try { return (await this.call('/ping')) || null; } catch { return null; } },
+  async printers() { try { return await this.call('/printers'); } catch { return null; } },
 };
 const receiptAuto = () => store.get('receipt_off') !== '1';
 
@@ -48,18 +58,34 @@ function paidView(paid) {
 
 // ตั้งค่าเฉพาะเครื่อง: ลิ้นชัก + ใบเสร็จ
 function drawerPanel() {
+  const lan = drawer.conn() === 'lan';
   const status = h('span', { class: 'sub' }, 'กำลังตรวจตัวช่วยเปิดลิ้นชัก…');
-  drawer.ping().then((ok) => { status.textContent = ok ? '✓ ตัวช่วยเปิดลิ้นชักทำงานอยู่บนเครื่องนี้' : '✗ ยังไม่พบตัวช่วยเปิดลิ้นชักบนเครื่องนี้ (ดูวิธีติดตั้งด้านล่าง)'; status.style.color = ok ? 'var(--ok, #1E6B3A)' : 'var(--bad, #B42318)'; });
+  const prnSel = h('select', { class: 'inp', id: 'f_dprn', onchange: (e) => store.set('drawer_printer', e.target.value || null) },
+    h('option', { value: '' }, 'เครื่องพิมพ์หลักของคอม'));
+  drawer.ping().then(async (p) => {
+    const ok = !!p?.ok, old = ok && !(p.v >= 2);
+    status.textContent = !ok ? '✗ ยังไม่พบตัวช่วยเปิดลิ้นชักบนเครื่องนี้ (ดูวิธีติดตั้งด้านล่าง)'
+      : old ? '! ตัวช่วยเป็นรุ่นเก่า ยังไม่รองรับ USB ให้ดาวน์โหลด 2 ไฟล์ด้านล่างแล้วติดตั้งใหม่ แล้วรีสตาร์ทคอม 1 ครั้ง' : '✓ ตัวช่วยเปิดลิ้นชักทำงานอยู่บนเครื่องนี้';
+    status.style.color = ok && !old ? 'var(--ok, #1E6B3A)' : 'var(--bad, #B42318)';
+    const list = ok && !lan ? await drawer.printers() : null;
+    (list?.printers || []).forEach((n) => prnSel.append(h('option', { value: n, selected: drawer.printer() === n }, n + (n === list.default ? ' (เครื่องหลัก)' : ''))));
+    if (drawer.printer() && ![...prnSel.options].some((o) => o.value === drawer.printer())) prnSel.append(h('option', { value: drawer.printer(), selected: true }, drawer.printer()));
+  });
   const sw = (key, label, sub, onVal = '1', inverted = false) => h('label', { class: 'switch', style: 'background:var(--ground)' },
     h('input', { type: 'checkbox', checked: inverted ? store.get(key) !== '1' : store.get(key) === onVal, onchange: (e) => { store.set(key, (inverted ? !e.target.checked : e.target.checked) ? '1' : null); render(); } }),
     h('span', {}, label, sub ? h('span', { class: 'sub', style: 'display:block;font-weight:400' }, sub) : null));
   return h('div', { class: 'panel grow', style: 'flex:none;max-height:none' },
     h('div', { class: 'ph' }, h('span', {}, 'เครื่องนี้: รับเงิน ลิ้นชัก และใบเสร็จ')),
     sw('receipt_off', 'พิมพ์ใบเสร็จอัตโนมัติหลังกดรับเงิน', 'ใบเสร็จมียอดชำระ เงินที่รับมา และเงินทอน', '1', true),
-    sw('drawer_on', 'เปิดลิ้นชักเก็บเงินอัตโนมัติเมื่อรับเงินสด', 'ลิ้นชักต้องเสียบสายเข้าช่องด้านหลังเครื่องพิมพ์ใบเสร็จ (ช่องเล็กแบบสายโทรศัพท์ เขียนว่า DK หรือ Cash drawer)'),
+    sw('drawer_on', 'เปิดลิ้นชักเก็บเงินอัตโนมัติเมื่อรับเงินสด', 'ลิ้นชักเสียบสายอยู่ที่ด้านหลังเครื่องพิมพ์ใบเสร็จ (ช่อง DK)'),
+    h('div', { class: 'field', style: 'max-width:560px' }, h('div', { class: 'lab' }, 'เครื่องพิมพ์ที่ต่อลิ้นชัก ต่อกับคอมแบบไหน'),
+      h('div', { class: 'seg' },
+        h('button', { type: 'button', class: lan ? '' : 'on', onclick: () => { store.set('drawer_conn', 'usb'); render(); } }, 'สาย USB เข้าคอม'),
+        h('button', { type: 'button', class: lan ? 'on' : '', onclick: () => { store.set('drawer_conn', 'lan'); render(); } }, 'สายแลน (LAN)'))),
     h('div', { class: 'row2', style: 'max-width:560px' },
-      h('div', { class: 'field' }, h('label', { for: 'f_pip' }, 'IP เครื่องพิมพ์ที่ต่อลิ้นชัก'),
-        h('input', { class: 'inp', id: 'f_pip', inputmode: 'decimal', placeholder: 'เช่น 192.168.1.100', value: drawer.ip(), onchange: (e) => { store.set('printer_ip', e.target.value.trim() || null); toast('บันทึก IP แล้ว'); } })),
+      lan ? h('div', { class: 'field' }, h('label', { for: 'f_pip' }, 'IP เครื่องพิมพ์'),
+        h('input', { class: 'inp', id: 'f_pip', inputmode: 'decimal', placeholder: 'เช่น 192.168.1.100', value: drawer.ip(), onchange: (e) => { store.set('printer_ip', e.target.value.trim() || null); toast('บันทึก IP แล้ว'); } }))
+        : h('div', { class: 'field' }, h('label', { for: 'f_dprn' }, 'เลือกเครื่องพิมพ์'), prnSel),
       h('div', { class: 'field' }, h('label', { for: 'f_dpin' }, 'ขาลิ้นชัก'),
         h('select', { class: 'inp', id: 'f_dpin', onchange: (e) => store.set('drawer_pin', e.target.value) },
           h('option', { value: '2', selected: drawer.pin() === '2' }, 'ขา 2 (ส่วนใหญ่ใช้แบบนี้)'), h('option', { value: '5', selected: drawer.pin() === '5' }, 'ขา 5 (ถ้าขา 2 ไม่เปิด)')))),
@@ -70,9 +96,9 @@ function drawerPanel() {
       h('a', { class: 'btn ghost', href: '/tools/drawer-helper.ps1', download: 'drawer-helper.ps1' }, 'ดาวน์โหลดไฟล์ติดตั้ง 2/2')),
     h('details', { class: 'tips' }, h('summary', {}, 'วิธีติดตั้งตัวช่วยเปิดลิ้นชัก (ทำครั้งเดียวบนคอมแคชเชียร์)'),
       h('ol', {},
-        h('li', {}, 'หา IP เครื่องพิมพ์: ปิดเครื่องพิมพ์ กดปุ่ม FEED ค้างไว้แล้วเปิดเครื่อง เครื่องจะพิมพ์ใบตั้งค่าออกมา ดูบรรทัด IP Address แล้วใส่ในช่องด้านบน'),
+        h('li', {}, 'เลือกว่าเครื่องพิมพ์ต่อกับคอมด้วยสาย USB หรือสายแลน · ถ้า LAN ต้องใส่ IP (ปิดเครื่องพิมพ์ กด FEED ค้างแล้วเปิดเครื่อง จะพิมพ์ใบที่มี IP ออกมา)'),
         h('li', {}, 'กดดาวน์โหลดไฟล์ติดตั้งทั้ง 2 ไฟล์ (จะอยู่ในโฟลเดอร์ Downloads เดียวกัน)'),
         h('li', {}, 'เปิดโฟลเดอร์ Downloads ดับเบิลคลิก install-drawer-helper.bat · ถ้า Windows ขึ้นกรอบสีน้ำเงิน ให้กด "More info" → "Run anyway" · ขึ้นคำว่า OK แล้วกดปุ่มใดก็ได้เพื่อปิด'),
-        h('li', {}, 'กลับมาหน้านี้ กด F5 จะขึ้น ✓ ตัวช่วยทำงานอยู่ แล้วกด "ทดสอบเปิดลิ้นชัก" · ถ้าเบราว์เซอร์ถามว่าจะให้เว็บนี้เชื่อมต่ออุปกรณ์ในเครือข่ายไหม ให้กด "อนุญาต / Allow"'),
+        h('li', {}, 'กลับมาหน้านี้ กด F5 จะขึ้น ✓ ตัวช่วยทำงานอยู่ · ถ้าเป็น USB ให้เลือกชื่อเครื่องพิมพ์ใบเสร็จ (เช่น XP-58) ในช่อง "เลือกเครื่องพิมพ์" แล้วกด "ทดสอบเปิดลิ้นชัก" · ถ้าเบราว์เซอร์ถามว่าจะให้เว็บนี้เชื่อมต่ออุปกรณ์ในเครือข่ายไหม ให้กด "อนุญาต / Allow"'),
         h('li', {}, 'ติดตั้งครั้งเดียว ตัวช่วยจะเปิดเองทุกครั้งที่เปิดคอม'))));
 }

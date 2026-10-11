@@ -6,7 +6,7 @@ const store = {
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
 };
 
-const APP_VERSION = 'v2026.10.11';
+const APP_VERSION = 'v2026.10.11c';
 const S = { pin: store.get('pin'), view: store.get('view') || 'floor', data: null, sel: null };
 
 // ---------- ตัวช่วยสร้างหน้าจอ ----------
@@ -274,6 +274,6 @@ function render() {
   if (S.view === 'tables') { S.view = 'settings'; S.setTab = 'tables'; } // ลิงก์เก่า
   const views = { menu: menuView, packages: packagesView, floor: floorView, orders: ordersView, table: tableView, checkout: checkoutView, report: reportView, settings: settingsView, line: lineView, import: importView, photos: photosView, shoot: shootView };
   const view = views[S.view] || floorView;
-  app.replaceChildren(bar(), h('main', { class: 'wrap' + (['orders', 'report', 'settings', 'line', 'import', 'photos', 'shoot'].includes(S.view) ? ' full' : '') }, view()));
+  app.replaceChildren(bar(), typeof kioskBanner === 'function' ? kioskBanner() || '' : '', h('main', { class: 'wrap' + (['orders', 'report', 'settings', 'line', 'import', 'photos', 'shoot'].includes(S.view) ? ' full' : '') }, view()));
 }
 // เริ่มทำงานอยู่ท้าย extra.js (ต้องโหลดไฟล์อื่นก่อน)
