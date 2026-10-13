@@ -151,6 +151,27 @@ function openTablePanel() {
 }
 
 // ---------- สั่งอาหาร ----------
+// รายการนอกเมนู: พนักงานพิมพ์ชื่อ + ราคาเอง (เช่น ไข่ดาวเพิ่ม, ค่าแก้ว, ของฝาก) คิดเงินเป็นสั่งเพิ่ม
+function customForm() {
+  if (!S.customOpen) return h('button', { type: 'button', class: 'btn ghost', style: 'align-self:flex-start', onclick: () => { S.customOpen = true; render(); setTimeout(() => document.getElementById('f_cname')?.focus(), 30); } }, '+ รายการนอกเมนู (ใส่ชื่อ/ราคาเอง)');
+  const name = h('input', { class: 'inp', id: 'f_cname', placeholder: 'ชื่อรายการ เช่น ไข่ดาวเพิ่ม', maxlength: 60, 'aria-label': 'ชื่อรายการนอกเมนู' });
+  const price = h('input', { class: 'inp', id: 'f_cprice', type: 'number', inputmode: 'decimal', min: 0, step: '1', placeholder: 'ราคา (บาท)', style: 'width:130px', 'aria-label': 'ราคา (บาท)' });
+  const qty = h('input', { class: 'inp', type: 'number', inputmode: 'numeric', min: 1, max: 99, value: 1, style: 'width:80px', 'aria-label': 'จำนวน' });
+  const add = () => {
+    const n = name.value.trim(), p = Number(price.value), q = Math.max(1, Math.min(99, Math.round(Number(qty.value) || 1)));
+    if (!n) { toast('กรุณาใส่ชื่อรายการ', true); name.focus(); return; }
+    if (price.value === '' || !Number.isFinite(p) || p < 0) { toast('กรุณาใส่ราคา (ใส่ 0 ได้ถ้าไม่คิดเงิน)', true); price.focus(); return; }
+    S.cart[`custom:${Date.now()}`] = { qty: q, name: n, price: Math.round(p * 100) / 100 };
+    S.customOpen = false; toast(`เพิ่ม ${n} แล้ว`); render();
+  };
+  [name, price, qty].forEach((i) => { i.onkeydown = (e) => { if (e.key === 'Enter') add(); }; });
+  return h('div', { class: 'cashbox' },
+    h('b', {}, 'รายการนอกเมนู'),
+    h('div', { style: 'display:flex;flex-wrap:wrap;gap:8px;align-items:center' }, h('div', { style: 'flex:1;min-width:180px' }, name), price, h('span', { class: 'sub' }, '×'), qty),
+    h('div', { style: 'display:flex;gap:8px' },
+      h('button', { type: 'button', class: 'btn', onclick: add }, 'ใส่ในรายการ'),
+      h('button', { type: 'button', class: 'btn ghost', onclick: () => { S.customOpen = false; render(); } }, 'ยกเลิก')));
+}
 function tableView() {
   const d = S.detail;
   if (!d || d.session.id !== S.sid) return [h('div', { class: 'empty' }, 'กำลังโหลด…')];
@@ -182,13 +203,17 @@ function tableView() {
   };
 
   const menuBy = Object.fromEntries(S.data.menu.map((m) => [m.id, m]));
-  const lines = Object.entries(S.cart).map(([k, v]) => { const [md, id] = k.split(':'); return { k, mode: md, m: menuBy[id], ...v }; }).filter((l) => l.m);
-  const pkgLines = lines.filter((l) => l.mode === 'pkg'), extraLines = lines.filter((l) => l.mode === 'extra');
+  const lines = Object.entries(S.cart).map(([k, v]) => { const [md, id] = k.split(':');
+    return { k, mode: md, m: md === 'custom' ? { id: null, name: v.name, price: v.price } : menuBy[id], ...v }; }).filter((l) => l.m);
+  const pkgLines = lines.filter((l) => l.mode === 'pkg'), extraLines = lines.filter((l) => l.mode !== 'pkg');
   const pkgCount = pkgLines.reduce((a, l) => a + l.qty, 0);
   const extraSum = extraLines.reduce((a, l) => a + l.qty * l.m.price, 0);
   const over = !!ses.max_per_round && pkgCount > ses.max_per_round;
   const cartLine = (l) => h('div', { class: 'cl' },
-    h('div', { class: 'cr' }, h('span', {}, `${l.qty}× ${l.m.name}`), h('span', {}, l.mode === 'extra' ? money(l.qty * l.m.price) : '')),
+    h('div', { class: 'cr' }, h('span', {}, `${l.qty}× ${l.m.name}`, l.mode === 'custom' ? h('span', { class: 'xt' }, 'นอกเมนู') : null),
+      h('span', {}, l.mode !== 'pkg' ? money(l.qty * l.m.price) : '',
+        l.mode === 'custom' ? [' ', h('button', { type: 'button', class: 'linkbtn', style: 'min-height:28px;padding:0 4px', 'aria-label': `ลด ${l.m.name}`, onclick: () => setQty(l.k, l.qty - 1) }, '−'),
+          h('button', { type: 'button', class: 'linkbtn', style: 'min-height:28px;padding:0 4px', 'aria-label': `เพิ่ม ${l.m.name}`, onclick: () => setQty(l.k, l.qty + 1) }, '+')] : null)),
     l.showNote || l.note
       ? h('input', { class: 'inp small', placeholder: 'หมายเหตุ เช่น ไม่เผ็ด', value: l.note || '', maxlength: 100, 'aria-label': `หมายเหตุ ${l.m.name}`,
           oninput: (e) => { S.cart[l.k].note = e.target.value; } })
@@ -196,7 +221,9 @@ function tableView() {
 
   const noteInp = h('input', { class: 'inp small', id: 'f_onote', placeholder: 'หมายเหตุทั้งรอบ (ไม่บังคับ)', maxlength: 200 });
   const send = () => doThen(async () => {
-    const items = lines.map((l) => ({ item_id: l.m.id, qty: l.qty, mode: l.mode, note: S.cart[l.k]?.note || '' }));
+    const items = lines.map((l) => (l.mode === 'custom'
+      ? { mode: 'custom', name: l.m.name, price: l.m.price, qty: l.qty, note: S.cart[l.k]?.note || '' }
+      : { item_id: l.m.id, qty: l.qty, mode: l.mode, note: S.cart[l.k]?.note || '' }));
     const r = await api('POST', `/api/sessions/${ses.id}/orders`, { items, note: noteInp.value });
     S.cart = {}; await loadDetail(); toast(`ส่งรอบที่ ${r.round_no} เข้าครัวแล้ว`);
     // เครื่องที่เปิด "พิมพ์อัตโนมัติ" ไว้ พิมพ์ใบสั่งครัวทันทีที่ส่ง (ไม่ต้องรอรอบดึงข้อมูล) และจำไว้ไม่ให้พิมพ์ซ้ำ
@@ -221,6 +248,7 @@ function tableView() {
     ses.package_id ? h('div', { class: 'seg' },
       h('button', { class: mode === 'pkg' ? 'on' : '', 'aria-pressed': mode === 'pkg' ? 'true' : 'false', onclick: () => { S.mode = 'pkg'; S.cat = ''; render(); } }, 'ในแพ็กเกจ'),
       h('button', { class: mode === 'extra' ? 'on' : '', 'aria-pressed': mode === 'extra' ? 'true' : 'false', onclick: () => { S.mode = 'extra'; S.cat = ''; render(); } }, 'สั่งเพิ่ม (คิดเงินแยก)')) : null,
+    customForm(),
     cats.length > 1 ? h('div', { class: 'chips' }, h('button', { class: 'chip' + (!S.cat ? ' on' : ''), onclick: () => { S.cat = ''; render(); } }, 'ทั้งหมด'),
       cats.map((c) => h('button', { class: 'chip' + (S.cat === c ? ' on' : ''), onclick: () => { S.cat = c; render(); } }, c))) : null,
     shown.length ? h('div', { class: 'igrid' }, shown.map(tile))

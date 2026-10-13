@@ -114,3 +114,17 @@ test('รับเงินสด: คิดเงินทอน และร�
   const exact = await ok('POST', `/api/sessions/${s2.id}/close`, { method: 'cash' }); // ไม่ใส่ = รับพอดี
   assert.equal(exact.change, 0); assert.equal(exact.received, 50);
 });
+
+test('รายการนอกเมนู: พนักงานใส่ชื่อ+ราคาเอง คิดเงินถูก แต่ลูกค้าสแกน QR ใช้ไม่ได้', async () => {
+  const t = (await ok('POST', '/api/tables', { name: 'โต๊ะนอกเมนู', seats: 2 })).id;
+  const s = await ok('POST', '/api/sessions', { table_id: t, adults: 1 });
+  assert.equal((await call('POST', `/api/sessions/${s.id}/orders`, { items: [{ mode: 'custom', name: '', price: 50, qty: 1 }] })).status, 400);
+  assert.equal((await call('POST', `/api/sessions/${s.id}/orders`, { items: [{ mode: 'custom', name: 'ไข่ดาว', price: -1, qty: 1 }] })).status, 400);
+  await ok('POST', `/api/sessions/${s.id}/orders`, { items: [{ mode: 'custom', name: 'ไข่ดาวพิเศษ', price: 15, qty: 2, note: 'ไม่สุก' }, { item_id: coke, qty: 1, mode: 'extra' }] });
+  const d = await ok('GET', `/api/sessions/${s.id}`);
+  assert.equal(d.bill.total, 55);
+  const line = d.orders[0].items.find((i) => i.name === 'ไข่ดาวพิเศษ');
+  assert.equal(line.unit_price, 15); assert.equal(line.in_package, false); assert.equal(line.note, 'ไม่สุก');
+  const q = await fetch(`${BASE}/api/t/${s.qr_token}/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ mode: 'custom', name: 'ฟรี', price: 0, qty: 1 }] }) });
+  assert.equal(q.status, 400);
+});

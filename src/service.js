@@ -137,14 +137,20 @@ async function placeOrder(db, sessionId, b, { source = 'staff', session } = {}) 
   if (b.items.length > 60) throw bad('รายการเยอะเกินไปในรอบเดียว');
   const note = text(b.note, 'หมายเหตุ', { required: false, max: 200 });
 
-  const ids = [...new Set(b.items.map((x) => int(x.item_id, 'รายการอาหาร', { min: 1, max: 1e9 })))];
-  const menu = await all(db, `SELECT id, name, price_satang, available FROM menu_items WHERE id IN (${inList(ids.length)})`, ...ids);
+  // mode 'custom' = รายการนอกเมนู พนักงานพิมพ์ชื่อและราคาเอง (ลูกค้าสแกน QR ใช้ไม่ได้)
+  if (source !== 'staff' && b.items.some((x) => x.mode === 'custom')) throw bad('รูปแบบรายการไม่ถูกต้อง');
+  const ids = [...new Set(b.items.filter((x) => x.mode !== 'custom').map((x) => int(x.item_id, 'รายการอาหาร', { min: 1, max: 1e9 })))];
+  const menu = ids.length ? await all(db, `SELECT id, name, price_satang, available FROM menu_items WHERE id IN (${inList(ids.length)})`, ...ids) : [];
   const inPkg = s.package_id
     ? new Set((await all(db, 'SELECT item_id FROM package_items WHERE package_id = ?', s.package_id)).map((r) => r.item_id))
     : new Set();
 
   let pkgQty = 0;
   const lines = b.items.map((x) => {
+    if (x.mode === 'custom') {
+      const name = text(x.name, 'ชื่อรายการ', { max: 60 });
+      return [null, name, int(x.qty, 'จำนวน', { min: 1, max: 99 }), 0, baht(x.price, `ราคา ${name}`), text(x.note, 'หมายเหตุ', { required: false, max: 100 })];
+    }
     const m = menu.find((r) => r.id === Number(x.item_id));
     if (!m) throw bad('มีรายการอาหารที่ถูกลบไปแล้ว กรุณาโหลดหน้าใหม่');
     if (!m.available) throw bad(`${m.name} หมดแล้ว`);
