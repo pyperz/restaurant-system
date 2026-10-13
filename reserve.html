@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1B2320">
+<title>จองโต๊ะ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public.css">
+</head>
+<body>
+<header class="top"><h1 id="shop">จองโต๊ะ</h1><p id="hours" class="muted"></p></header>
+<main id="main">
+  <form id="f" class="card" hidden>
+    <h2>รายละเอียดการจอง</h2>
+    <div class="row2">
+      <div><label for="date">วันที่</label><input class="inp" type="date" id="date" name="date" required></div>
+      <div><label for="time">เวลา</label><input class="inp" type="time" id="time" name="time" step="900" required></div>
+    </div>
+    <label for="people">จำนวนคน</label>
+    <input class="inp" type="number" id="people" name="people" min="1" max="60" value="2" inputmode="numeric" required>
+    <label for="name">ชื่อผู้จอง</label>
+    <input class="inp" id="name" name="name" required maxlength="60" autocomplete="name">
+    <label for="phone">เบอร์โทร</label>
+    <input class="inp" id="phone" name="phone" required inputmode="tel" autocomplete="tel" maxlength="15">
+    <label for="note">หมายเหตุ (ไม่บังคับ)</label>
+    <input class="inp" id="note" name="note" maxlength="200" placeholder="เช่น มีเด็ก 2 คน ขอเก้าอี้เด็ก">
+    <p class="muted">ร้านจะยืนยันการจองอีกครั้ง</p>
+    <button type="submit" class="btn wide">ส่งคำขอจอง</button>
+  </form>
+  <p id="msg" class="muted center">กำลังโหลด…</p>
+</main>
+<script>
+'use strict';
+const t = new URLSearchParams(location.search).get('t') || '';
+const $ = (s) => document.querySelector(s);
+const f = $('#f'), msg = $('#msg');
+const today = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+const max = new Date(Date.now() + 7 * 3600000 + 60 * 86400000).toISOString().slice(0, 10);
+const el = f.elements;
+el.date.min = today; el.date.max = max; el.date.value = today; el.time.value = '18:00';
+let phone = '';
+fetch('/api/public/menu?t=' + encodeURIComponent(t)).then((r) => r.json()).then((d) => {
+  phone = d.phone || '';
+  $('#shop').textContent = d.shop_name ? `${d.shop_name} · จองโต๊ะ` : 'จองโต๊ะ';
+  document.title = $('#shop').textContent;
+  $('#hours').textContent = d.open_hours ? `เปิด ${d.open_hours}` : '';
+  if (!d.reserve_on) { msg.textContent = 'ขณะนี้ร้านปิดรับจองออนไลน์ค่ะ'; return; }
+  msg.textContent = ''; f.hidden = false;
+}).catch(() => { msg.textContent = 'โหลดไม่สำเร็จ ลองใหม่อีกครั้งค่ะ'; });
+f.onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = f.querySelector('button'); btn.disabled = true; btn.textContent = 'กำลังส่ง…';
+  try {
+    const r = await fetch('/api/public/reserve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      t, date: el.date.value, time: el.time.value, people: el.people.value, name: el.name.value, phone: el.phone.value, note: el.note.value }) });
+    const out = await r.json();
+    if (!r.ok) throw new Error(out.error || 'ส่งไม่สำเร็จ');
+    f.hidden = true;
+    msg.textContent = out.linked ? 'ส่งคำขอจองแล้ว ร้านจะยืนยันทาง LINE ค่ะ' : `ส่งคำขอจองแล้ว ร้านจะยืนยันค่ะ${phone ? ` สอบถามโทร ${phone}` : ''}`;
+  } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = 'ส่งคำขอจอง'; }
+};
+</script>
+</body>
+</html>
